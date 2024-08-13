@@ -36,7 +36,7 @@ data segment
 	snake_tail_pos dd 0
 	snake_length dw 0
 	dir_neg db dir_nu,dir_dn,dir_up,dir_rg,dir_lf
-	dir_mov dd 00000000h,0000ffffh,00000001h,0ffff0000h,00010000h;(0,0) (0,-1) (0,1) (-1,0) (1,0)
+	dir_mov dw 0000h,0000h, 0000h,0ffffh, 0000h,0001h, 0ffffh,0000h, 0001h,0000h;(0,0) (0,-1) (0,1) (-1,0) (1,0)
 data ends
 
 ;扩展段
@@ -93,7 +93,7 @@ main proc
 
 	mov ax,4f02h;超级vga显卡
 	mov bx,0103h;800×600 256色
-	int 10h;调用图形中断
+	;int 10h;调用图形中断
 
 	
 
@@ -158,6 +158,27 @@ main proc
 	;	inc dx
 	;	jmp l0
 	;b0:
+
+	;测试代码
+	;mov cl,1
+	;mov bx,5
+	;mov dx,7
+	;call snake_move
+	;
+	;mov cl,2
+	;mov bx,5
+	;mov dx,7
+	;call snake_move
+	;
+	;mov cl,3
+	;mov bx,5
+	;mov dx,7
+	;call snake_move
+	;
+	;mov cl,4
+	;mov bx,5
+	;mov dx,7
+	;call snake_move
 
 	;设置按键映射
 	mov byte ptr key_map[48h],key_up
@@ -273,6 +294,51 @@ main proc
 main endp
 
 ;---------------------函数定义---------------------;
+
+	;蛇移动
+	;cl=dir,bx=x,dx=y
+snake_move proc
+	push ax
+
+	;对索引做倍增
+	mov al,cl
+	mov ch,4
+	mul ch;ax=al*ch(4)（用于4byte表项访问索引）
+	xchg ax,bx;交换ax和bx
+
+	;查表
+	add ax,word ptr dir_mov[bx].x;根据表项改变x和y
+	add dx,word ptr dir_mov[bx].y;
+
+	;保存返回
+	mov bx,ax
+	pop ax
+	ret
+snake_move endp
+
+	;越界环绕
+	;bx=x,dx=y
+surround proc
+	cmp bx,map_x
+	jnge x_add
+	sub bx,map_x;如果大等于map_x则减去
+	x_add:
+	cmp bx,0
+	jge x_end
+	add bx,map_x;如果小于0则加上
+	x_end:
+
+	cmp dx,map_y
+	jnge y_add
+	sub dx,map_y;如果大等于map_y则减去
+	y_add:
+	cmp dx,0
+	jge y_end
+	add dx,map_y;如果小于0则加上
+	y_end:
+
+	ret
+surround endp
 
 
 	;设置地图坐标点上的方向
