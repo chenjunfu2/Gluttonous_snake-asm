@@ -21,11 +21,11 @@ dir_up equ 1
 dir_dn equ 2
 dir_lf equ 3
 dir_rg equ 4
-key_nu equ 0
-key_up equ 1
-key_dn equ 2
-key_lf equ 3
-key_rg equ 4
+key_nu equ dir_nu
+key_up equ dir_up
+key_dn equ dir_dn
+key_lf equ dir_lf
+key_rg equ dir_rg
 
 stack segment
 	db 1024 dup(0)
@@ -35,6 +35,8 @@ data segment
 	snake_head_pos dd 0
 	snake_tail_pos dd 0
 	snake_length dw 0
+	dir_neg db dir_nu,dir_dn,dir_up,dir_rg,dir_lf
+	dir_mov dd 00000000h,0000ffffh,00000001h,0ffff0000h,00010000h;(0,0) (0,-1) (0,1) (-1,0) (1,0)
 data ends
 
 ;扩展段
@@ -196,31 +198,57 @@ main proc
 	;先进行一次初始绘制
 
 	game_loop:
-	;游戏刻时间判断，直到时间到达，才进行下面的流程，否则无限循环等待
-	;mov ah, 2ch;21h中断读时间功能，CH:CL=时:分 DH:DL=秒:1/100秒
-	;int 21h
-	;偷懒换一种办法，直接用中断延迟，类似于sleep
-	mov ah,86h
-	mov cx,0h; CX：DX= 延时时间（单位是微秒）
-	mov dx,3e80h;16000us=16ms(60fps/s)
-	int 15h;等待16ms
+		;游戏刻时间判断，直到时间到达，才进行下面的流程，否则无限循环等待
+		;mov ah, 2ch;21h中断读时间功能，CH:CL=时:分 DH:DL=秒:1/100秒
+		;int 21h
+		;偷懒换一种办法，直接用中断延迟，类似于sleep
+		mov ah,86h
+		mov cx,0h; CX：DX= 延时时间（单位是微秒）
+		mov dx,3e80h;16000us=16ms(60fps/s)
+		int 15h;等待16ms
 
 
-	;从输入队列获取并处理所有输入，输入队列中的数据由按键中断历程添加，
-	;因为贪吃蛇没有必要保留一游戏刻内多余的操作，所以仅记录最后一个操作方向，即队列长度为1
-	;按键测试
-	;jmp dat;跳过数据，否则会被当成代码执行
-	;table db snake_head,snake_body,snake_tail,snake_food
-	;dat:
-	;mov bh,0h
-	;mov bl,last_input_pos
-	;mov al,table[bx]
-	;mov cx,8
-	;mov dx,6
-	;call draw_block
+		;从输入队列获取并处理所有输入，输入队列中的数据由按键中断历程添加，
+		;因为贪吃蛇没有必要保留一游戏刻内多余的操作，所以仅记录最后一个操作方向，即队列长度为1
+		;按键测试
+		;jmp dat;跳过数据，否则会被当成代码执行
+		;table db snake_head,snake_body,snake_tail,snake_food
+		;dat:
+		;mov bh,0h
+		;mov bl,last_input_pos
+		;mov al,table[bx]
+		;mov cx,8
+		;mov dx,6
+		;call draw_block
+
+		;根据输入改变方向，注意需要从键盘中断历程共享数据last_input_pos读取
+		;判断一下当前方向，避免反方向移动
+
+		;获取当前头的方向
+		mov bx,word ptr snake_head_pos.x
+		mov dx,word ptr snake_head_pos.y
+		call get_map_pos
+
+		;取反方向
+		mov bh,0h
+		mov bl,al
+		mov ah,dir_neg[bx];ah存储蛇头方向的反向
+
+		;保存last_input_pos防止中断修改导致前后不统一
+		mov cl,last_input_pos;cl存储当前按键方向
+
+		cmp ah,cl;如果当前按键方向和蛇头反方向相等则掠过不改变（不能180度扭头）
+		je no_change_dir
+		cmp ah,al;如果当前按键方向和蛇头方向一致也无需改变
+		je no_change_dir
+			mov bx,word ptr snake_head_pos.x
+			mov dx,word ptr snake_head_pos.y
+			call set_map_pos
+		no_change_dir:
 
 
-	;根据输入改变方向，注意需要从键盘中断历程共享数据last_input_pos读取
+
+		;移动、吃和生成食物、判断输赢并仅记录（输赢处理需要等后续绘制完毕），同时记录移动情况以便绘制优化
 
 
 
@@ -228,14 +256,11 @@ main proc
 
 
 
-	;移动、吃和生成食物、判断输赢并仅记录（输赢处理需要等后续绘制完毕），同时记录移动情况以便绘制优化
+		;绘制蛇（注意优化：如有必要则擦除蛇尾，绘制新蛇尾，擦除原先蛇头位置绘制为蛇身，
+		;绘制新蛇头（此处如果吃到事物会直接覆盖绘制，无需擦除食物），如有必要则绘制新食物）
 
 
-	;绘制蛇（注意优化：如有必要则擦除蛇尾，绘制新蛇尾，擦除原先蛇头位置绘制为蛇身，
-	;绘制新蛇头（此处如果吃到事物会直接覆盖绘制，无需擦除食物），如有必要则绘制新食物）
-
-
-	;判断刚才的输赢情况（ps：输为碰撞蛇身，赢为蛇长度大等于地图大小）
+		;判断刚才的输赢情况（ps：输为碰撞蛇身，赢为蛇长度大等于地图大小）
 
 
 	jmp game_loop
