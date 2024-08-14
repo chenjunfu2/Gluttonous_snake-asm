@@ -1,4 +1,4 @@
-.186;使用80186的pusha和popa
+;.186;使用80186的pusha和popa
 assume cs:code,ds:data,ss:stack,es:extra
 
 ;debug模式
@@ -29,17 +29,23 @@ key_up equ dir_up
 key_dn equ dir_dn
 key_lf equ dir_lf
 key_rg equ dir_rg
+key_sp equ 5;加速按键
+key_pa equ 6;暂停按键
+key_qu equ 7;退出按键
+
 
 stack segment
 	db 1024 dup(0)
 stack ends
 
 data segment
+	snake_move_speed dw 2 dup(0)
 	snake_head_pos dw 2 dup(0)
 	snake_tail_pos dw 2 dup(0)
 	new_snake_head_pos dw 2 dup(0)
 	new_snake_tail_pos dw 2 dup(0)
 	is_eat_food db 0
+	is_fast_speed db 0
 	snake_length dw 0
 	dir_neg db dir_nu,dir_dn,dir_up,dir_rg,dir_lf
 	dir_mov dw 0000h,0000h, 0000h,0ffffh, 0000h,0001h, 0ffffh,0000h, 0001h,0000h, 0000h,0000h;nu(0,0) up(0,-1) dn(0,1) lf(-1,0) rg(1,0) fd(0,0)
@@ -48,9 +54,11 @@ data ends
 
 ;扩展段
 extra segment
+	;old_int9_save dw 2 dup(0)
 	key_map db 255 dup(key_nu);按键映射，访问方式：扫描码查表
-	last_input_pos db 0;最后一次按键记录
-	is_install_int9h db 0;是否安装了int9h中断
+	;last_input_pos db 0;最后一次按键记录
+	;is_install_int9h db 0;是否安装了int9h中断
+	time_event db 0
 extra ends
 
 
@@ -224,35 +232,56 @@ main proc
 	mov snake_length,2
 
 	;设置默认方向
-	mov last_input_pos,key_rg
+	;mov last_input_pos,key_rg
 
 	;设置按键映射
-	mov byte ptr key_map[48h],key_up
-	mov byte ptr key_map[50h],key_dn
-	mov byte ptr key_map[4bh],key_lf
-	mov byte ptr key_map[4dh],key_rg
+	mov byte ptr key_map[48h],key_up;48h 上 -> up Arrow
+	mov byte ptr key_map[50h],key_dn;50h 下 -> down Arrow 
+	mov byte ptr key_map[4bh],key_lf;4bh 左 -> left Arrow 
+	mov byte ptr key_map[4dh],key_rg;4dh 右 -> right Arrow
+	mov byte ptr key_map[39h],key_sp;39h 加速 -> space
+	mov byte ptr key_map[19h],key_pa;19h 暂停 -> p
+	mov byte ptr key_map[10h],key_qu;10h 退出 -> q
 
 	;设置键盘回调
-	call install_int9h_routine
+	;call install_int9h_routine
 
-	;全部绘制
-	call draw_all_map
-
-	;my:jmp my
+	;设置循环速度
+	mov word ptr snake_move_speed[0],3h
+	mov word ptr snake_move_speed[2],0d40h
 
 	;初始化完毕，开始游戏循环
 	;先进行一次初始绘制
+	call draw_all_map
 
+	mov time_event,10000000b;事件初始为1
 	game_loop:
 		;游戏刻时间判断，直到时间到达，才进行下面的流程，否则无限循环等待
 		;mov ah, 2ch;21h中断读时间功能，CH:CL=时:分 DH:DL=秒:1/100秒
 		;int 21h
 		;偷懒换一种办法，直接用中断延迟，类似于sleep
-		mov ah,86h
-		mov cx,0h; CX：DX= 延时时间（单位是微秒）
-		mov dx,3e80h;
-		int 15h;等待16ms
+		;mov ah,86h
+		;mov cx,3h; CX：DX= 延时时间（单位是微秒）
+		;mov dx,0d40h;3e80h;30d40h=0.2s
+		;int 15h;等待16ms
 
+		;事件测试
+		time_event_test:
+		mov al,time_event
+		test al,al
+		jz time_event_test;如果为0则跳转回去继续测试
+		mov time_event,0h;如果不为0则清零并运行，然后设置事件并等待下次测试
+		;使用事件调用
+		;该调用立即返回，循环检查time_event直到最高位7bit设为1
+		;es:bx->time_event
+		;cx:dx->ms
+		mov ah,83h
+		mov al,00h;设置，01为取消设置
+		lea bx,time_event
+		mov cx,word ptr snake_move_speed[0]
+		mov dx,word ptr snake_move_speed[2]
+		int 15h
+		
 
 		;从输入队列获取并处理所有输入，输入队列中的数据由按键中断历程添加，
 		;因为贪吃蛇没有必要保留一游戏刻内多余的操作，所以仅记录最后一个操作方向，即队列长度为1
@@ -282,12 +311,62 @@ main proc
 		mov ah,dir_neg[bx];ah存储当前蛇头方向的反向
 		mov al,cl;al存储当前蛇头方向
 
-		;保存last_input_pos防止中断修改导致前后不统一
-		mov cl,last_input_pos;cl存储当前按键方向
 
 		;获取蛇头坐标
 		mov bx,word ptr snake_head_pos.x
 		mov dx,word ptr snake_head_pos.y
+
+
+		reget_key:
+		;保存last_input_pos防止中断修改导致前后不统一
+		;mov cl,last_input_pos;cl存储当前按键方向
+
+		call get_input;cl为当前按键信息
+		;判断是不是特殊按键
+		cmp cl,key_sp;加速
+		jb no_special_key;小于key_sp，正常按键，否则判断是否是特殊按键
+		jne is_pause
+
+			mov ch,is_fast_speed
+			test ch,ch
+			jnz mul_speed
+			mov is_fast_speed,1h
+			;把循环间隔除以二
+			;带进位循环位移
+			clc;清除cf
+			rcr word ptr snake_move_speed[0],1;cf移入高位（此处为0），低位移入cf
+			rcr word ptr snake_move_speed[2],1;cf移入高位（此处为上面的退位），低位移入cf
+			jmp reget_key
+			mul_speed:
+			mov is_fast_speed,0h
+			;把循环间隔乘以二
+			;带进位循环位移
+			clc;清除cf
+			rcl word ptr snake_move_speed[2],1;cf移入低位（此处为0），高位移入cf
+			rcl word ptr snake_move_speed[0],1;cf移入低位，高位移入cf
+			
+			jmp reget_key
+
+		is_pause:
+		cmp cl,key_pa;暂停，直接死循环读取直到恢复
+		jne is_quit
+		
+			pause_test:
+				;mov cl,last_input_pos
+				call get_input;cl为当前按键信息
+				cmp cl,key_pa
+			jne pause_test
+			jmp reget_key;暂停结束，重新获取一个按键
+
+		is_quit:
+		cmp cl,key_qu;退出，直接跳转到末尾返回
+		jne reget_key
+
+			jmp return;返回
+
+		no_special_key:
+		test cl,cl;如果cl是0则没有按键，不改变方向
+		jz no_change_dir
 
 		cmp ah,cl;如果当前按键方向和蛇头反方向相等则掠过不改变（不能180度扭头）
 		je no_change_dir
@@ -414,13 +493,39 @@ main proc
 
 ;---------------------结束返回---------------------;
 	return:
-	call uninstall_int9h_routine
+	;call uninstall_int9h_routine
 	mov ax, 4c00h
 	int 21h
 	ret
 main endp
 
 ;---------------------函数定义---------------------;
+
+;使用int16和中断获取键盘输入
+get_input proc;无参数，cl=return
+		push ax
+		push bx
+		mov cl,0
+		get_input_loop:
+			mov ah,01h;功能号
+			int 16h;检查是否有字符可用(ZF=0)
+			jnz no_input;没有输入，直接跳过
+			;否则有输入，循环读取直到没有输入或有合法输入
+			mov ah,00h
+			int 16h;ah->扫描码，al->ASCII
+		
+			mov bh,0h
+			mov bl,ah
+			mov ah,key_map[bx];扫描码查表，表内数据为方向，0为无效，否则有效
+		
+			test ah,ah;测试表数据，如果为0则无效按键，循环，否则执行
+		jz get_input_loop
+		mov cl,ah;否则保存到cl退出循环
+		no_input:;此时cl为0返回
+		pop bx
+		pop ax
+		ret
+get_input endp
 
 ;绘制整个地图
 draw_all_map proc;无参数
@@ -631,141 +736,94 @@ draw_block proc;al=颜色 bx=x dx=y
 	ret
 draw_block endp
 
-;安装int9h键盘中断例程
-;TODO：后续修改安装位置和中断，目前安装方式会导致dosbox程序结束后允许其他程序时崩溃
-install_int9h_routine proc;无参数
-	pusha
-	push es
-	push ds
-
-	mov al,is_install_int9h
-	test al,al
-	jnz install_int9h_ret;已安装则直接返回
-	mov is_install_int9h,1;没安装则设置已安装
-
-	;拷贝新的int9h例程代码到安全区
-	;设置es:di
-	mov bx,0
-	mov es,bx
-	mov di,7E00H
-	
-	;设置ds:si
-	mov bx,cs
-	mov ds,bx
-	mov si,offset new_int9h
-	
-	mov cx,offset new_int9h_end-offset new_int9h;设置传送大小
-	cld;设置传送方向
-	rep movsb;传送 ds:si->es:di
-
-	;保存原中断例程地址
-	;此处es仍为0，无需重复设置
-	cli;关中断
-
-	mov ax,es:[9*4+0]	;暂存ip
-	mov word ptr es:[9*4+0],7e00h;设置新中断地址ip
-	mov es:[200h+0],ax	;保存ip
-
-	mov ax,es:[9*4+2]	;暂存cs
-	mov word ptr es:[9*4+2],0h;设置新中断地址cs
-	mov es:[200h+2],ax	;保存cs
-	
-	sti;开中断
-
-	install_int9h_ret:
-	pop ds
-	pop es
-	popa
-	ret
-install_int9h_routine endp
-
-;卸载int9h中断例程
-uninstall_int9h_routine proc;无参数
-	pusha
-	push es
-
-	mov al,is_install_int9h
-	test al,al
-	jz uninstall_int9h_ret;没安装则直接返回
-	mov is_install_int9h,0;已安装则设置未安装
-
-	mov bx,0
-	mov es,bx
-
-	cli
-
-	mov ax,es:[200h+0];获取原来的中断地址
-	mov es:[9*4+0],ax;放回中断表
-
-	mov ax,es:[200h+2]
-	mov es:[9*4+2],ax
-
-	sti
-
-	uninstall_int9h_ret:
-	pop es
-	popa
-	ret
-uninstall_int9h_routine endp
-;---------------------中断例程---------------------;
-
-new_int9h proc
-	push ax
-	in al,60H                       ;从端口读取数据
-	pushf							;保存标志位（call和int的区别在于int多一个pushf，原中断返回时会popf，这里pushf后刚好能平栈，伪装成int中断调用）
-	call dword ptr cs:[200H]		;调用原中断
-	
-		;执行回调操作
-		push bx
-		push es
-		
-		mov bx,extra
-		mov es,bx
-		
-		mov ah,0h
-		mov bx,ax
-		mov ah,es:key_map[bx];扫描码查表，表内数据为方向，0为无效，1~4分别为4个方向
-		
-		test ah,ah;测试表数据，如果为0则无效按键，忽略，否则保存
-		jz int9h_ret
-		mov es:last_input_pos,ah
-		
-		int9h_ret:
-		pop es
-		pop bx
-
-		;cmp al,48h						
-		;je change						
-		;cmp al,50h	
-		;je change	
-		;cmp al,4Bh	
-		;je change		
-		;cmp al,4Dh	
-		;je change
-		;jmp int9h_ret	
-		;
-		;change:
-		;push bx
-		;push es
-		;push cx
-		;
-		;mov bx,0B800H
-		;mov es,bx
-		;mov bx,1									;奇数位保存颜色属性信息
-		;mov cx,2000							;整个屏幕2000个字符
-		;changeColor:
-		;inc byte ptr es:[bx]
-		;add bx,2
-		;loop changeColor
-		;pop cx
-		;pop es
-		;pop bx
-		;int9h_ret:
-
-	pop ax
-	iret;中断返回
-new_int9h_end:nop;标记
-new_int9h endp
+;;安装int9h键盘中断例程
+;install_int9h_routine proc;无参数
+;	push ax
+;	push bx
+;	push ds
+;
+;	mov al,is_install_int9h
+;	test al,al
+;	jnz install_int9h_ret;已安装则直接返回
+;	mov is_install_int9h,1;没安装则设置已安装
+;
+;	mov bx,0
+;	mov ds,bx
+;
+;	cli;关中断
+;
+;	mov ax,ds:[9*4+0]	;暂存ip
+;	mov word ptr es:old_int9_save[0],ax	;保存ip
+;	mov word ptr ds:[9*4+0],offset new_int9h;设置新中断地址ip
+;	
+;	mov ax,ds:[9*4+2]	;暂存cs
+;	mov word ptr es:old_int9_save[2],ax;保存cs
+;	mov word ptr ds:[9*4+2],cs;设置新中断地址cs
+;	
+;	sti;开中断
+;
+;	install_int9h_ret:
+;	pop ds
+;	pop bx
+;	pop ax
+;	ret
+;install_int9h_routine endp
+;
+;;卸载int9h中断例程
+;uninstall_int9h_routine proc;无参数
+;	push ax
+;	push bx
+;	push ds
+;
+;	mov al,is_install_int9h
+;	test al,al
+;	jz uninstall_int9h_ret;没安装则直接返回
+;	mov is_install_int9h,0;已安装则设置未安装
+;
+;	mov bx,0
+;	mov ds,bx
+;
+;	cli
+;
+;	mov ax,word ptr es:old_int9_save[0];获取原来的中断地址ip
+;	mov ds:[9*4+0],ax;放回中断表
+;
+;	mov ax,word ptr es:old_int9_save[2];获取原来的中断地址cs
+;	mov ds:[9*4+2],ax;放回中断表
+;
+;	sti
+;
+;	uninstall_int9h_ret:
+;	pop ds
+;	pop bx
+;	pop ax
+;	ret
+;uninstall_int9h_routine endp
+;;---------------------中断例程---------------------;
+;
+;new_int9h proc
+;	push ax
+;	push bx
+;
+;	in al,60H                       ;从端口读取数据
+;	pushf							;保存标志位（call和int的区别在于int多一个pushf，原中断返回时会popf，这里pushf后刚好能平栈，伪装成int中断调用）
+;	call dword ptr es:old_int9_save[0]	;调用原中断
+;	
+;	;执行回调操作
+;	mov ah,0h
+;	mov bx,ax
+;	mov ah,es:key_map[bx];扫描码查表，表内数据为方向，0为无效，否则有效
+;
+;	test ah,ah
+;	jz int9h_ret
+;		mov es:last_input_pos,ah;保存按键
+;	int9h_ret:
+;
+;	pop bx
+;	pop ax
+;	iret;中断返回
+;new_int9h_end:nop;标记
+;new_int9h endp
 
 code ends
 
