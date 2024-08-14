@@ -1,6 +1,8 @@
 .186;使用80186的pusha和popa
 assume cs:code,ds:data,ss:stack,es:extra
 
+;debug模式
+debug equ 0
 ;常量数据
 block_side equ 10
 map_x equ 80
@@ -21,6 +23,7 @@ dir_up equ 1
 dir_dn equ 2
 dir_lf equ 3
 dir_rg equ 4
+dir_fd equ 5
 key_nu equ dir_nu
 key_up equ dir_up
 key_dn equ dir_dn
@@ -32,18 +35,22 @@ stack segment
 stack ends
 
 data segment
-	snake_head_pos dd 0
-	snake_tail_pos dd 0
+	snake_head_pos dw 2 dup(0)
+	snake_tail_pos dw 2 dup(0)
+	new_snake_head_pos dw 2 dup(0)
+	new_snake_tail_pos dw 2 dup(0)
+	is_eat_food db 0
 	snake_length dw 0
 	dir_neg db dir_nu,dir_dn,dir_up,dir_rg,dir_lf
-	dir_mov dw 0000h,0000h, 0000h,0ffffh, 0000h,0001h, 0ffffh,0000h, 0001h,0000h;(0,0) (0,-1) (0,1) (-1,0) (1,0)
+	dir_mov dw 0000h,0000h, 0000h,0ffffh, 0000h,0001h, 0ffffh,0000h, 0001h,0000h, 0000h,0000h;nu(0,0) up(0,-1) dn(0,1) lf(-1,0) rg(1,0) fd(0,0)
+	map db map_size dup(dir_nu);地图，访问方式：y*map_x+x
 data ends
 
 ;扩展段
 extra segment
-	map db map_size dup(dir_nu);地图，访问方式：y*map_x+x
 	key_map db 255 dup(key_nu);按键映射，访问方式：扫描码查表
 	last_input_pos db 0;最后一次按键记录
+	is_install_int9h db 0;是否安装了int9h中断
 extra ends
 
 
@@ -91,10 +98,13 @@ main proc
 	;mov al,12h;640×480 16色
 	;mov al,13h;640×480 256色
 
+	mov al,debug
+	test al,al
+	jnz no_set_screen;debug模式不要修改屏幕
 	mov ax,4f02h;超级vga显卡
 	mov bx,0103h;800×600 256色
-	;int 10h;调用图形中断
-
+	int 10h;调用图形中断
+	no_set_screen:
 	
 
 
@@ -180,19 +190,10 @@ main proc
 	;mov dx,7
 	;call snake_move
 
-	;设置按键映射
-	mov byte ptr key_map[48h],key_up
-	mov byte ptr key_map[50h],key_dn
-	mov byte ptr key_map[4bh],key_lf
-	mov byte ptr key_map[4dh],key_rg
-
-	;设置键盘回调
-	call install_int9h_routine
-
 	;设置头尾坐标
 	;0,1
-	mov word ptr snake_head_pos.x,0
-	mov word ptr snake_head_pos.y,1
+	mov word ptr snake_head_pos.x,1
+	mov word ptr snake_head_pos.y,0
 
 	;0,0
 	mov word ptr snake_tail_pos.x,0
@@ -212,8 +213,30 @@ main proc
 	call set_map_pos
 	;call get_map_pos;test
 
+	;设置食物（随机生成）
+	;！！TODO
+	mov bx,3
+	mov dx,3
+	mov cl,dir_fd
+	call set_map_pos
+
 	;初始长度2
 	mov snake_length,2
+
+	;设置默认方向
+	mov last_input_pos,key_rg
+
+	;设置按键映射
+	mov byte ptr key_map[48h],key_up
+	mov byte ptr key_map[50h],key_dn
+	mov byte ptr key_map[4bh],key_lf
+	mov byte ptr key_map[4dh],key_rg
+
+	;设置键盘回调
+	call install_int9h_routine
+
+	;全部绘制
+	call draw_all_map
 
 	;初始化完毕，开始游戏循环
 	;先进行一次初始绘制
@@ -244,6 +267,7 @@ main proc
 
 		;根据输入改变方向，注意需要从键盘中断历程共享数据last_input_pos读取
 		;判断一下当前方向，避免反方向移动
+		;TODO:新增按键：加速、暂停、退出
 
 		;获取当前头的方向
 		mov bx,word ptr snake_head_pos.x
@@ -252,8 +276,9 @@ main proc
 
 		;取反方向
 		mov bh,0h
-		mov bl,al
+		mov bl,cl;cl蛇头方向
 		mov ah,dir_neg[bx];ah存储蛇头方向的反向
+		mov al,cl;al存储蛇头方向
 
 		;保存last_input_pos防止中断修改导致前后不统一
 		mov cl,last_input_pos;cl存储当前按键方向
@@ -267,27 +292,125 @@ main proc
 			call set_map_pos
 		no_change_dir:
 
-
-
-		;移动、吃和生成食物、判断输赢并仅记录（输赢处理需要等后续绘制完毕），同时记录移动情况以便绘制优化
-
-
-
-
-
-
-
+		;移动、吃和生成食物、判断输赢并仅记录（输赢处理需要等后续绘制完毕）
 		;绘制蛇（注意优化：如有必要则擦除蛇尾，绘制新蛇尾，擦除原先蛇头位置绘制为蛇身，
 		;绘制新蛇头（此处如果吃到事物会直接覆盖绘制，无需擦除食物），如有必要则绘制新食物）
 
+		;更新蛇头
+		mov bx,word ptr snake_head_pos.x
+		mov dx,word ptr snake_head_pos.y
+		call get_map_pos;获取原蛇头方向方向，存入cl给下一个调用
+		call snake_move;根据蛇头方向移动一格
+		call surround;进行环绕
+
+		;存储新蛇头位置
+		mov new_snake_head_pos.x,bx
+		mov new_snake_head_pos.y,dx
+
+		;输判断：新蛇头位置不等于蛇尾的情况下，地图上有数据，则说明碰撞蛇身，即允许碰撞蛇尾（因为蛇头前进的同时蛇尾也在移动
+		mov is_eat_food,0;判断前先设置false
+		call get_map_pos;获取新蛇头位置下的方向信息
+		cmp cl,dir_nu;如果是空，则允许移动
+		je allow_move
+		cmp cl,dir_fd;如果是食物，则吃掉
+		je eat_food
+		;如果不是，判断坐标是不是等于蛇尾
+		cmp bx,snake_tail_pos.x
+		jne lose;如果还不等于，则说明吃掉蛇身，输
+		cmp dx,snake_head_pos.y
+		jne lose;如果还不等于，则说明吃掉蛇身，输
+		jmp allow_move;如果都等于，则允许移动
+		lose:;输了
+		jmp long_jmp_lose;二次远跳转
+		eat_food:
+		mov is_eat_food,1;吃到设置1
+		inc snake_length;递增蛇长度
+
+		allow_move:
+		mov al,is_eat_food
+		test al,al
+		jnz no_clear_tail
+			;没吃到食物则更新蛇尾
+			mov bx,word ptr snake_tail_pos.x
+			mov dx,word ptr snake_tail_pos.y
+			call get_map_pos;获取蛇尾方向，存入cl给下一个调用
+			call snake_move;根据尾头方向移动一格
+			call surround;进行环绕
+
+			;存储新蛇尾位置
+			mov new_snake_tail_pos.x,bx
+			mov new_snake_tail_pos.y,dx
+
+			;清空原蛇尾位置
+			mov snake_tail_pos.x,bx
+			mov snake_tail_pos.y,dx
+			mov cl,dir_nu
+			call set_map_pos
+			;绘制空方块（背景）
+			mov al,background
+			call draw_block
+		no_clear_tail:
+		mov bx,word ptr snake_head_pos.x
+		mov dx,word ptr snake_head_pos.y
+		mov al,snake_body
+		call draw_block;绘制原蛇头为蛇身
+		call get_map_pos;获取原位置蛇头方向信息，存入cl给下一个调用
+		mov bx,word ptr new_snake_head_pos.x
+		mov dx,word ptr new_snake_head_pos.y
+		mov al,snake_head
+		call draw_block;绘制新蛇头
+		call set_map_pos;设置新位置蛇头方向信息
+		;设置新蛇头坐标
+		mov word ptr snake_head_pos.x,bx
+		mov word ptr snake_head_pos.y,dx
+		
+		;判断是否吃掉食物
+		mov al,is_eat_food
+		test al,al
+		jnz spawn_new_food
+			;没吃到食物则设置新蛇尾位置
+			mov bx,word ptr new_snake_tail_pos.x
+			mov dx,word ptr new_snake_tail_pos.y
+			mov al,snake_tail
+			call draw_block;绘制原蛇身为蛇尾
+			;设置新蛇尾坐标
+			mov word ptr snake_tail_pos.x,bx
+			mov word ptr snake_tail_pos.y,dx
+			jmp leave_test
+		spawn_new_food:
+			;否则如果吃到了则生成新食物
+				mov bx,3
+				mov dx,3
+				mov cl,dir_fd
+				call set_map_pos
+			;绘制新食物
+			mov al,snake_food
+			call draw_block
+		leave_test:
 
 		;判断刚才的输赢情况（ps：输为碰撞蛇身，赢为蛇长度大等于地图大小）
+		;输或赢则显示输赢情况和分数（最终长度）
+		jmp no_lose
+		long_jmp_lose:
+			;输了
+			loop1:
+			nop;偷懒先写死循环
+			jmp loop1
+			
+		no_lose:
+		cmp snake_length,map_size
+		jnae no_win
+			;赢了
+			loop2:
+			nop;偷懒先写死循环
+			jmp loop2
 
-
+		no_win:
 	jmp game_loop
 
 ;---------------------结束返回---------------------;
 	return:
+	call uninstall_int9h_routine
 	mov ax, 4c00h
 	int 21h
 	ret
@@ -295,9 +418,65 @@ main endp
 
 ;---------------------函数定义---------------------;
 
-	;蛇移动
-	;cl=dir,bx=x,dx=y
-snake_move proc
+;绘制整个地图
+draw_all_map proc;无参数
+	push ax
+	push bx
+	push cx
+	push dx
+
+	mov dx,0
+	l0:
+	cmp dx,map_y
+	jae b0
+	
+		mov bx,0
+		l1:
+		cmp bx,map_x
+		jae b1
+			;获取地图数据
+			call get_map_pos
+			test cl,cl
+			jz no_draw;为0代表空白，无需绘制
+				cmp cl,dir_fd
+				jne no_food
+					mov al,snake_food
+					call draw_block
+				jmp no_draw
+				no_food:
+					mov al,snake_body;不是食物绘制蛇身，否则绘制食物
+					call draw_block
+			no_draw:
+
+		inc bx
+		jmp l1
+		b1:
+	
+		inc dx
+		jmp l0
+	b0:
+
+	;刚才所有有数据的位置都绘制成蛇身了，现在通过蛇头和蛇尾坐标判断绘制
+
+	mov bx,word ptr snake_head_pos.x
+	mov dx,word ptr snake_head_pos.y
+	mov al,snake_head
+	call draw_block;绘制蛇头
+
+	mov bx,word ptr snake_tail_pos.x
+	mov dx,word ptr snake_tail_pos.y
+	mov al,snake_head
+	call draw_block;绘制蛇尾
+
+	pop dx
+	pop cx
+	pop bx
+	pop ax
+	ret
+draw_all_map endp
+
+;蛇移动
+snake_move proc	;cl=dir,bx=x,dx=y
 	push ax
 
 	;对索引做倍增
@@ -316,35 +495,35 @@ snake_move proc
 	ret
 snake_move endp
 
-	;越界环绕
-	;bx=x,dx=y
-surround proc
+;越界环绕
+surround proc;bx=x,dx=y
 	cmp bx,map_x
 	jnge x_add
-	sub bx,map_x;如果大等于map_x则减去
+		sub bx,map_x;如果大等于map_x则减去
 	x_add:
 	cmp bx,0
 	jge x_end
-	add bx,map_x;如果小于0则加上
+		add bx,map_x;如果小于0则加上
 	x_end:
 
 	cmp dx,map_y
 	jnge y_add
-	sub dx,map_y;如果大等于map_y则减去
+		sub dx,map_y;如果大等于map_y则减去
 	y_add:
 	cmp dx,0
 	jge y_end
-	add dx,map_y;如果小于0则加上
+		add dx,map_y;如果小于0则加上
 	y_end:
 
 	ret
 surround endp
 
 
-	;设置地图坐标点上的方向
-	;cl=dir,bx=x,dx=y
-set_map_pos proc
-
+;设置地图坐标点上的方向
+set_map_pos proc;cl=dir,bx=x,dx=y
+	push ax
+	push bx
+	push dx
 	;pos(bx)=y(dx)*map_x(ax)+x(bx)
 	mov ax,map_x
 	mul dx;dx:ax=ax*dx
@@ -352,53 +531,59 @@ set_map_pos proc
 
 	;map[pos(bx)]=dir(cl)
 	mov map[bx],cl
-
+	pop dx
+	pop bx
+	pop ax
 	ret
 set_map_pos endp
 
-	;获取地图坐标点上的方向
-	;al=return bx=x,dx=y
-get_map_pos proc
-
+;获取地图坐标点上的方向
+get_map_pos proc;cl=return bx=x,dx=y
+	push ax
+	push bx
+	push dx
 	;pos(bx)=y(dx)*map_x(ax)+x(bx)
 	mov ax,map_x
 	mul dx;dx:ax=ax*dx
 	add bx,ax
 
-	mov al,map[bx]
-
+	mov cl,map[bx]
+	pop dx
+	pop bx
+	pop ax
 	ret
 get_map_pos endp
 
 	
-	;地图坐标转换到屏幕坐标(cx=x dx=y)
-	;修改cx和dx为原来的十倍
-pos_to_screen proc;使用ax、bx、cx、dx
+;地图坐标转换到屏幕坐标，修改cx和dx为原来的十倍
+pos_to_screen proc;(bx=x dx=y)
 	push ax
-	push bx
+	push cx
 
 	mov ax,block_side
 	mul dx;dx:ax=block_side(ax)*y(dx)
-	mov bx,ax;忽略高位dx，只保存ax，暂存到bx
+	mov cx,ax;忽略高位dx，只保存ax，暂存到cx
 
 	mov ax,block_side
-	mul cx;dx:ax=block_side(ax)*x(cx)
-	mov cx,ax;忽略高位dx，只保存ax
+	mul bx;dx:ax=block_side(ax)*x(bx)
+	mov bx,ax;忽略高位dx，只保存ax，到bx
 
-	mov dx,bx;把刚才bx暂存的值赋值给dx
+	mov dx,cx;把刚才cx暂存的值y赋值给dx
 
-	pop bx
+	pop cx
 	pop ax
 	ret
 pos_to_screen endp
 
 
-	;AL=颜色 CX=x DX=y
-	;数据一定要定义在函数之前，否则会被当成代码执行到
+	
+;数据一定要定义在函数之前，否则会被当成代码执行到
 	bsx dw 0
 	bsy dw 0
-draw_block proc
-	pusha;保存通用寄存器
+;绘制方块
+draw_block proc;al=颜色 bx=x dx=y
+	push cx
+	push dx
 
 	call pos_to_screen;调用转换
 
@@ -406,7 +591,7 @@ draw_block proc
 	mov ah,0ch;绘制点
 	;绘制block_side大小的矩形
 
-	mov bsx,cx
+	mov bsx,bx
 	mov bsy,dx
 
 	add bsx,block_side
@@ -417,6 +602,7 @@ draw_block proc
 	cmp dx,bsy
 	jnb drb0_;无符号不小于时转移
 		
+		mov cx,bx;恢复cx到传入大小
 		drb1:
 		cmp cx,bsx
 		jnb drb1_;无符号不小于时转移
@@ -426,20 +612,26 @@ draw_block proc
 		inc cx
 		jmp drb1
 		drb1_:
-		sub cx,block_side;恢复cx到传入大小
 	
 	inc dx
 	jmp drb0
 	drb0_:
 
-	popa;弹出通用寄存器
+	pop dx
+	pop cx
 	ret
 draw_block endp
 
-install_int9h_routine proc
+;安装int9h键盘中断例程
+install_int9h_routine proc;无参数
 	pusha
 	push es
 	push ds
+
+	mov al,is_install_int9h
+	test al,al
+	jnz install_int9h_ret;已安装则直接返回
+	mov is_install_int9h,1;没安装则设置已安装
 
 	;拷贝新的int9h例程代码到安全区
 	;设置es:di
@@ -470,15 +662,22 @@ install_int9h_routine proc
 	
 	sti;开中断
 
+	install_int9h_ret:
 	pop ds
 	pop es
 	popa
 	ret
 install_int9h_routine endp
 
-uninstall_int9h_routine proc
+;卸载int9h中断例程
+uninstall_int9h_routine proc;无参数
 	pusha
 	push es
+
+	mov al,is_install_int9h
+	test al,al
+	jz uninstall_int9h_ret;没安装则直接返回
+	mov is_install_int9h,0;已安装则设置未安装
 
 	mov bx,0
 	mov es,bx
@@ -493,6 +692,7 @@ uninstall_int9h_routine proc
 
 	sti
 
+	uninstall_int9h_ret:
 	pop es
 	popa
 	ret
