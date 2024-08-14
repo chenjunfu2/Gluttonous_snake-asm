@@ -249,6 +249,16 @@ main proc
 	mov word ptr snake_move_speed[0],3h
 	mov word ptr snake_move_speed[2],0d40h
 
+	;设置随机数种子
+	mov ah, 2ch;21h中断读时间功能，CH:CL=时:分 DH:DL=秒:1/100秒
+	int 21h
+	;秒*100+1/100秒
+	mov al,100
+	mul dh;ax=al*dh
+	mov dh,0h
+	add ax,dx
+	mov random_seed,ax
+
 	;初始化完毕，开始游戏循环
 	;先进行一次初始绘制
 	call draw_all_map
@@ -506,49 +516,77 @@ spawn_snake_food proc;无参数
 	mov di,0h;存储当前下标，最后作为map_nu的最大大小
 
 	mov dx,0
-	l0:
+	_l0:
 	cmp dx,map_y
-	jae b0
+	jae _b0
 	
 		mov bx,0
-		l1:
+		_l1:
 		cmp bx,map_x
-		jae b1
+		jae _b1
 			;获取地图数据
 			call get_map_pos
 			test cl,cl
 			jnz no_spawn;不为0代表有东西，不能生成在这里
 				;为0则可生成，记录坐标
-				mov cx,2
-				shl di,cx;左移2（乘以4访问）
+				mov cl,2
+				shl di,cl;左移2（乘以4访问）
 
 				mov word ptr map_nu[di].x,bx
 				mov word ptr map_nu[di].y,dx
 
-				shr di,cx;除以4归位
+				shr di,cl;除以4归位
 				inc di
 			no_spawn:
 		inc bx
-		jmp l1
-		b1:
+		jmp _l1
+		_b1:
 	
 	inc dx
-	jmp l0
-	b0:
+	jmp _l0
+	_b0:
 
-	mov map_nu_max,di;存储最大值
+	;di存储map_nu最大值
 	;在0到di之间生成均匀随机数
+	;使用xorshift算法，这三个常量的选择需要注意，不是所有的都可以，16bit下选择798
+	;x ^= x << 7;
+    ;x ^= x >> 9;
+    ;x ^= x << 8;
 
+	mov bx,random_seed
 
+	mov ax,bx
+	mov cl,7
+	shl ax,cl
+	xor bx,ax
 
-	
+	mov ax,bx
+	mov cl,9
+	shl ax,cl
+	xor bx,ax
+
+	mov ax,bx
+	mov cl,8
+	shl ax,cl
+	xor bx,ax
+
+	mov random_seed,bx
+
+	;进行求模
+	;dx=dx:ax%di
+	mov dx,0
+	mov ax,bx
+	div di
+
+	mov bx,dx;保存余数
 
 	;查表获取随机数作为下标表示的坐标
-	mov bx,word ptr map_nu[di].x
-	mov dx,word ptr map_nu[di].y
-	;绘制新食物
-	mov al,snake_food
+	mov bx,word ptr map_nu[bx].x
+	mov dx,word ptr map_nu[bx].y
+	mov al,snake_food;绘制新食物
 	call draw_block
+	mov cl,dir_fd
+	call set_map_pos;设置地图
 
 	pop di
 	pop dx
@@ -930,3 +968,13 @@ end main
 ;For ATs dated 6/10/85 and after, XT-286s, and PC Convertibles, an INT 15h, function 4Fh (Keyboard Intercept) is executed after the scan code has been read from the keyboard port (60h). This allows the user to redefine or remove a keystroke.
 ;
 ;INT 16 provides a standard way to read characters from the keyboard buffer that have been placed there by the INT 9 handler in ROM.
+
+;被乘数	乘数			乘积
+;AL		reg/mem8	AX
+;AX		reg/mem16	DX:AX
+;EAX	reg/mem32	EDX:EAX
+
+;被除数		除数			商		余数
+;AX			reg/mem8	AL		AH
+;DX:AX		reg/mem16	AX		DX
+;EDX:EAX	reg/mem32	EAX		EDX
