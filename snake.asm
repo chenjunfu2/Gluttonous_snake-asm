@@ -61,10 +61,7 @@ data ends
 
 ;扩展段
 extra segment
-	;old_int9_save dw 2 dup(0)
 	key_map db 255 dup(key_nu);按键映射，访问方式：扫描码查表
-	;last_input_pos db 0;最后一次按键记录
-	;is_install_int9h db 0;是否安装了int9h中断
 	time_event db 0
 extra ends
 
@@ -86,33 +83,6 @@ main proc
 
 ;---------------------程序开始---------------------;
 
-
-	;mov al,13h;320*200 256色的图形模式:
-	;mov ah,0;是用来设定显示模式的服务程序
-	;int 10h;调用中断
-
-	;mov cx,10;x坐标
-	;mov dx,10;y坐标
-	;mov al,1100b;淡红色
-	;mov ah,0ch;绘制点
-	;int 10h;调用中断
-
-	;清屏
-	;mov ah,06h
-	;mov al,0
-	;mov ch,0  ;(0,0)
-	;mov cl,0
-	;mov dh,24  ;(24,79)
-	;mov dl,79
-	;;mov bh,07h ;黑底白字
-	;int 10h
-
-	
-	;设置显示模式为点阵模式，否则字符模式无法绘图
-	;mov ax,00h
-	;mov al,12h;640×480 16色
-	;mov al,13h;640×480 256色
-
 	mov al,debug
 	test al,al
 	jnz no_set_screen;debug模式不要修改屏幕
@@ -120,91 +90,8 @@ main proc
 	mov bx,0103h;800×600 256色
 	int 10h;调用图形中断
 	no_set_screen:
-	
 
-
-	;mov ah,0fh;获取页码，存储在bh内
-	;int 10h;调用图形中断
-
-	;mov bh,0;手动设置页码
-	;mov al,10111111b;颜色
-	;mov ah,0ch;绘制点
-	;int 10h
-
-	;int 10 AH=0CH	AL=颜色，BH=页码 CX=x，DX=y
-
-
-
-
-
-	;绘制蛇
-	;mov al,snake_head
-	;mov cx,1
-	;mov dx,6
-	;call draw_block
-	;
-	;mov al,snake_body
-	;mov cx,2
-	;mov dx,6
-	;call draw_block
-	;
-	;mov al,snake_body
-	;mov cx,3
-	;mov dx,6
-	;call draw_block
-	;
-	;mov al,snake_tail
-	;mov cx,4
-	;mov dx,6
-	;call draw_block
-	;
-	;mov al,snake_food
-	;mov cx,8
-	;mov dx,6
-	;call draw_block
-
-
-	;mov dx,0
-	;l0:
-	;cmp dx,600
-	;jge b0
-	;
-	;	mov cx,0
-	;	l1:
-	;	cmp cx,800
-	;	jge b1
-	;
-	;	int 10h;调用图形中断
-	;
-	;	inc cx
-	;	jmp l1
-	;	b1:
-	;
-	;	inc dx
-	;	jmp l0
-	;b0:
-
-	;测试代码
-	;mov cl,1
-	;mov bx,5
-	;mov dx,7
-	;call snake_move
-	;
-	;mov cl,2
-	;mov bx,5
-	;mov dx,7
-	;call snake_move
-	;
-	;mov cl,3
-	;mov bx,5
-	;mov dx,7
-	;call snake_move
-	;
-	;mov cl,4
-	;mov bx,5
-	;mov dx,7
-	;call snake_move
-
+	restart:
 	;设置头尾坐标
 	;0,1
 	mov word ptr snake_head_pos.x,1
@@ -219,23 +106,18 @@ main proc
 	mov dx,word ptr snake_head_pos.y
 	mov cl,dir_rg
 	call set_map_pos
-	;call get_map_pos;test
 
 
 	mov bx,word ptr snake_tail_pos.x
 	mov dx,word ptr snake_tail_pos.y
 	mov cl,dir_rg
 	call set_map_pos
-	;call get_map_pos;test
 
 	;设置食物（随机生成）
 	call spawn_snake_food
 
 	;初始长度2
 	mov snake_length,2
-
-	;设置默认方向
-	;mov last_input_pos,key_rg
 
 	;设置按键映射
 	mov byte ptr key_map[48h],key_up;48h 上 -> up Arrow
@@ -245,9 +127,6 @@ main proc
 	mov byte ptr key_map[39h],key_sp;39h 加速 -> space
 	mov byte ptr key_map[19h],key_pa;19h 暂停 -> p
 	mov byte ptr key_map[10h],key_qu;10h 退出 -> q
-
-	;设置键盘回调
-	;call install_int9h_routine
 
 	;设置循环速度
 	mov word ptr snake_move_speed[0],1h
@@ -270,16 +149,7 @@ main proc
 	mov time_event,10000000b;事件初始为1
 	game_loop:
 		;游戏刻时间判断，直到时间到达，才进行下面的流程，否则无限循环等待
-		;mov ah, 2ch;21h中断读时间功能，CH:CL=时:分 DH:DL=秒:1/100秒
-		;int 21h
-		;偷懒换一种办法，直接用中断延迟，类似于sleep
-		;mov ah,86h
-		;mov cx,3h; CX：DX= 延时时间（单位是微秒）
-		;mov dx,0d40h;3e80h;30d40h=0.2s
-		;int 15h;等待16ms
-
-		;事件测试
-		time_event_test:
+		time_event_test:;时间事件测试
 		mov al,time_event
 		test al,al
 		jz time_event_test;如果为0则跳转回去继续测试
@@ -294,25 +164,9 @@ main proc
 		mov cx,word ptr snake_move_speed[0]
 		mov dx,word ptr snake_move_speed[2]
 		int 15h
+
 		
-
-		;从输入队列获取并处理所有输入，输入队列中的数据由按键中断历程添加，
-		;因为贪吃蛇没有必要保留一游戏刻内多余的操作，所以仅记录最后一个操作方向，即队列长度为1
-		;按键测试
-		;jmp dat;跳过数据，否则会被当成代码执行
-		;table db snake_head,snake_body,snake_tail,snake_food
-		;dat:
-		;mov bh,0h
-		;mov bl,last_input_pos
-		;mov al,table[bx]
-		;mov cx,8
-		;mov dx,6
-		;call draw_block
-
-		;根据输入改变方向，注意需要从键盘中断历程共享数据last_input_pos读取
 		;判断一下当前方向，避免反方向移动
-		;TODO:新增按键：加速、暂停、退出
-
 		;获取当前头的方向
 		mov bx,word ptr snake_head_pos.x
 		mov dx,word ptr snake_head_pos.y
@@ -324,22 +178,26 @@ main proc
 		mov ah,dir_neg[bx];ah存储当前蛇头方向的反向
 		mov al,cl;al存储当前蛇头方向
 
-
-		;获取蛇头坐标
-		mov bx,word ptr snake_head_pos.x
-		mov dx,word ptr snake_head_pos.y
-
-
+		;从输入队列获取并处理所有输入放在cl中，输入队列中的数据由按键中断历程添加
 		reget_key:
-		;保存last_input_pos防止中断修改导致前后不统一
-		;mov cl,last_input_pos;cl存储当前按键方向
-
 		call get_input;cl为当前按键信息
 		;判断是不是特殊按键
 		cmp cl,key_sp;加速
 		jb no_special_key;小于key_sp，正常按键，否则判断是否是特殊按键
-		jne is_pause
+		cmp cl,key_qu
+		ja reget_key;大于key_qu，非法按键，重获取
 
+		;以下是特殊按键选择处理
+		jmp switch
+			switch_addr dw offset is_speed,offset is_pause,offset is_quit
+		switch:
+		sub cl,key_sp
+		mov bh,0h
+		mov bl,cl
+		shl bx,1;bx*2（因为是dw数据2byte）
+		jmp word ptr switch_addr[bx];直接根据查表结果
+
+		is_speed:
 			mov ch,is_fast_speed
 			test ch,ch
 			jnz mul_speed
@@ -359,35 +217,30 @@ main proc
 				rcl byte ptr speed_bit_save,1;最高位存入cf
 				rcl word ptr snake_move_speed[2],1;cf移入低位（此处为0），高位移入cf
 				rcl word ptr snake_move_speed[0],1;cf移入低位，高位移入cf
-			jmp no_change_dir
-
-		is_pause:
-		cmp cl,key_pa;暂停，直接死循环读取直到恢复
-		jne is_quit
-		
+				jmp no_change_dir
+		is_pause:;暂停，直接死循环读取直到恢复
 			pause_test:
 				;mov cl,last_input_pos
 				call get_input;cl为当前按键信息
 				cmp cl,key_pa
 			jne pause_test
 			jmp game_loop;暂停结束，直接跳过本轮循环
-
-		is_quit:
-		cmp cl,key_qu;退出，直接跳转到末尾返回
-		jne reget_key
-
+		is_quit:;退出，直接跳转到末尾返回
 			jmp return;返回
-
 		no_special_key:
+
+
 		test cl,cl;如果cl是0则没有按键，不改变方向
 		jz no_change_dir
-
-		cmp ah,cl;如果当前按键方向和蛇头反方向相等则掠过不改变（不能180度扭头）
-		je no_change_dir
-		cmp al,cl;如果当前按键方向和蛇头方向一致也无需改变
-		je no_change_dir
-			call set_map_pos
-			mov al,cl;设置al为cl存储的新的方向
+			;根据输入改变方向
+			cmp ah,cl;如果当前按键方向和蛇头反方向相等则掠过不改变（不能180度扭头）
+			je no_change_dir
+			cmp al,cl;如果当前按键方向和蛇头方向一致也无需改变
+			je no_change_dir
+				mov bx,word ptr snake_head_pos.x
+				mov dx,word ptr snake_head_pos.y
+				call set_map_pos;当前cl就是新的方向
+				mov al,cl;设置al为cl存储的新的方向
 		no_change_dir:
 		;否则不设置al，那么下面就会引用原先的蛇头方向
 
@@ -396,7 +249,9 @@ main proc
 		;绘制新蛇头（此处如果吃到事物会直接覆盖绘制，无需擦除食物），如有必要则绘制新食物）
 
 		;更新蛇头
-		mov cl,al;把蛇头方向放入cl进行下放调用移动
+		mov bx,word ptr snake_head_pos.x
+		mov dx,word ptr snake_head_pos.y
+		mov cl,al;把蛇头方向放入cl进行下方调用移动
 		call snake_move;根据蛇头方向移动一格
 		call surround;进行环绕
 
@@ -501,7 +356,6 @@ main proc
 
 ;---------------------结束返回---------------------;
 	return:
-	;call uninstall_int9h_routine
 	mov ax, 4c00h
 	int 21h
 	ret
@@ -837,151 +691,6 @@ draw_block proc;al=颜色 bx=x dx=y
 	ret
 draw_block endp
 
-;;安装int9h键盘中断例程
-;install_int9h_routine proc;无参数
-;	push ax
-;	push bx
-;	push ds
-;
-;	mov al,is_install_int9h
-;	test al,al
-;	jnz install_int9h_ret;已安装则直接返回
-;	mov is_install_int9h,1;没安装则设置已安装
-;
-;	mov bx,0
-;	mov ds,bx
-;
-;	cli;关中断
-;
-;	mov ax,ds:[9*4+0]	;暂存ip
-;	mov word ptr es:old_int9_save[0],ax	;保存ip
-;	mov word ptr ds:[9*4+0],offset new_int9h;设置新中断地址ip
-;	
-;	mov ax,ds:[9*4+2]	;暂存cs
-;	mov word ptr es:old_int9_save[2],ax;保存cs
-;	mov word ptr ds:[9*4+2],cs;设置新中断地址cs
-;	
-;	sti;开中断
-;
-;	install_int9h_ret:
-;	pop ds
-;	pop bx
-;	pop ax
-;	ret
-;install_int9h_routine endp
-;
-;;卸载int9h中断例程
-;uninstall_int9h_routine proc;无参数
-;	push ax
-;	push bx
-;	push ds
-;
-;	mov al,is_install_int9h
-;	test al,al
-;	jz uninstall_int9h_ret;没安装则直接返回
-;	mov is_install_int9h,0;已安装则设置未安装
-;
-;	mov bx,0
-;	mov ds,bx
-;
-;	cli
-;
-;	mov ax,word ptr es:old_int9_save[0];获取原来的中断地址ip
-;	mov ds:[9*4+0],ax;放回中断表
-;
-;	mov ax,word ptr es:old_int9_save[2];获取原来的中断地址cs
-;	mov ds:[9*4+2],ax;放回中断表
-;
-;	sti
-;
-;	uninstall_int9h_ret:
-;	pop ds
-;	pop bx
-;	pop ax
-;	ret
-;uninstall_int9h_routine endp
-;;---------------------中断例程---------------------;
-;
-;new_int9h proc
-;	push ax
-;	push bx
-;
-;	in al,60H                       ;从端口读取数据
-;	pushf							;保存标志位（call和int的区别在于int多一个pushf，原中断返回时会popf，这里pushf后刚好能平栈，伪装成int中断调用）
-;	call dword ptr es:old_int9_save[0]	;调用原中断
-;	
-;	;执行回调操作
-;	mov ah,0h
-;	mov bx,ax
-;	mov ah,es:key_map[bx];扫描码查表，表内数据为方向，0为无效，否则有效
-;
-;	test ah,ah
-;	jz int9h_ret
-;		mov es:last_input_pos,ah;保存按键
-;	int9h_ret:
-;
-;	pop bx
-;	pop ax
-;	iret;中断返回
-;new_int9h_end:nop;标记
-;new_int9h endp
-
 code ends
 
 end main
-
-;8086  CPU 中寄存器总共为 14 个，且均为 16 位 。
-;即 AX，BX，CX，DX，SP，BP，SI，DI，IP，FLAG，CS，DS，SS，ES 共 14 个。
-;而这 14 个寄存器按照一定方式又分为了通用寄存器，控制寄存器和段寄存器。
-;
-;通用寄存器：
-;AX，BX，CX，DX 称作为数据寄存器：
-;AX (Accumulator)：累加寄存器，也称之为累加器；
-;BX (Base)：基地址寄存器；
-;CX (Count)：计数器寄存器；
-;DX (Data)：数据寄存器；
-;SP 和 BP 又称作为指针寄存器：
-;SP (Stack Pointer)：堆栈指针寄存器；
-;BP (Base Pointer)：基指针寄存器；
-;SI 和 DI 又称作为变址寄存器：
-;SI (Source Index)：源变址寄存器；
-;DI (Destination Index)：目的变址寄存器；
-;
-;控制寄存器：
-;IP (Instruction Pointer)：指令指针寄存器；
-;FLAG：标志寄存器；
-;
-;段寄存器：
-;CS (Code Segment)：代码段寄存器；
-;DS (Data Segment)：数据段寄存器；
-;SS (Stack Segment)：堆栈段寄存器；
-;ES (Extra Segment)：附加段寄存器；
-
-
-;INT 09h (9)              Keyboard
-; 
-;The keyboard generates an INT 9 every time a key is pushed or released.
-; 
-;Notes:  This is a hardware interrupt (IRQ 1) activated by the make or break of every keystroke.
-;The default INT 9 handler in the ROM reads the make and break scan codes from the keyboard and converts them into actions or key codes as follows:
-;
-;For ASCII keys, when a make code is encountered, the ASCII code and the scan code for the key are placed in the 32-byte keyboard buffer, which is located at 0:41Eh. The ASCII code and scan code are placed in the buffer at the location addressed by the Keyboard Buffer Tail Pointer (0:041Ch). The Keyboard Buffer Tail Pointer is then incremented by 2, and if it points past the end of the buffer, it is adjusted so that it points to the beginning of the buffer.
-;If Ctrl, Alt, or Shift has been pressed, the Shift Status (0:0417h) and Extended Shift Status (0:0418h) bytes are updated.
-;If the Ctrl-Alt-Del combination has been pressed, the Reset Flag (0:0472h) is set to 1234h and control is given to the power-on self test (POST). Because the Reset Flag is 1234h, the POST routine bypasses the memory test.
-;If the Pause key sequence has been entered, this interrupt enters an indefinite loop. The loop is broken as soon as a valid ASCII keystroke is entered. (The PC Convertible issues an INT 15h, Service 41h (Wait on External Event), to execute its pause loop.)
-;If the Print Screen key sequence is entered, an INT 05h (Print Screen) is executed.
-;If the Control-Break key sequence is entered, an INT 1Bh (Control-Break) is executed.
-;For XTs dated 1/10/86 and after, ATs, XT-286s, and PC Convertibles, the INT 9h handler generates an INT 15h, function 91h (Interrupt Complete) to signal that a keystroke is available. Also, on these machines, a make or break of the Sys Req key generates an INT 15h, function 85h (System Request Key Pressed).
-;For ATs dated 6/10/85 and after, XT-286s, and PC Convertibles, an INT 15h, function 4Fh (Keyboard Intercept) is executed after the scan code has been read from the keyboard port (60h). This allows the user to redefine or remove a keystroke.
-;
-;INT 16 provides a standard way to read characters from the keyboard buffer that have been placed there by the INT 9 handler in ROM.
-
-;被乘数	乘数			乘积
-;AL		reg/mem8	AX
-;AX		reg/mem16	DX:AX
-;EAX	reg/mem32	EDX:EAX
-
-;被除数		除数			商		余数
-;AX			reg/mem8	AL		AH
-;DX:AX		reg/mem16	AX		DX
-;EDX:EAX	reg/mem32	EAX		EDX
