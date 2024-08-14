@@ -238,6 +238,8 @@ main proc
 	;全部绘制
 	call draw_all_map
 
+	;my:jmp my
+
 	;初始化完毕，开始游戏循环
 	;先进行一次初始绘制
 
@@ -248,7 +250,7 @@ main proc
 		;偷懒换一种办法，直接用中断延迟，类似于sleep
 		mov ah,86h
 		mov cx,0h; CX：DX= 延时时间（单位是微秒）
-		mov dx,3e80h;16000us=16ms(60fps/s)
+		mov dx,3e80h;
 		int 15h;等待16ms
 
 
@@ -277,29 +279,31 @@ main proc
 		;取反方向
 		mov bh,0h
 		mov bl,cl;cl蛇头方向
-		mov ah,dir_neg[bx];ah存储蛇头方向的反向
-		mov al,cl;al存储蛇头方向
+		mov ah,dir_neg[bx];ah存储当前蛇头方向的反向
+		mov al,cl;al存储当前蛇头方向
 
 		;保存last_input_pos防止中断修改导致前后不统一
 		mov cl,last_input_pos;cl存储当前按键方向
 
+		;获取蛇头坐标
+		mov bx,word ptr snake_head_pos.x
+		mov dx,word ptr snake_head_pos.y
+
 		cmp ah,cl;如果当前按键方向和蛇头反方向相等则掠过不改变（不能180度扭头）
 		je no_change_dir
-		cmp ah,al;如果当前按键方向和蛇头方向一致也无需改变
+		cmp al,cl;如果当前按键方向和蛇头方向一致也无需改变
 		je no_change_dir
-			mov bx,word ptr snake_head_pos.x
-			mov dx,word ptr snake_head_pos.y
 			call set_map_pos
+			mov al,cl;设置al为cl存储的新的方向
 		no_change_dir:
+		;否则不设置al，那么下面就会引用原先的蛇头方向
 
 		;移动、吃和生成食物、判断输赢并仅记录（输赢处理需要等后续绘制完毕）
 		;绘制蛇（注意优化：如有必要则擦除蛇尾，绘制新蛇尾，擦除原先蛇头位置绘制为蛇身，
 		;绘制新蛇头（此处如果吃到事物会直接覆盖绘制，无需擦除食物），如有必要则绘制新食物）
 
 		;更新蛇头
-		mov bx,word ptr snake_head_pos.x
-		mov dx,word ptr snake_head_pos.y
-		call get_map_pos;获取原蛇头方向方向，存入cl给下一个调用
+		mov cl,al;把蛇头方向放入cl进行下放调用移动
 		call snake_move;根据蛇头方向移动一格
 		call surround;进行环绕
 
@@ -334,7 +338,7 @@ main proc
 			mov bx,word ptr snake_tail_pos.x
 			mov dx,word ptr snake_tail_pos.y
 			call get_map_pos;获取蛇尾方向，存入cl给下一个调用
-			call snake_move;根据尾头方向移动一格
+			call snake_move;根据蛇尾方向移动一格
 			call surround;进行环绕
 
 			;存储新蛇尾位置
@@ -342,8 +346,8 @@ main proc
 			mov new_snake_tail_pos.y,dx
 
 			;清空原蛇尾位置
-			mov snake_tail_pos.x,bx
-			mov snake_tail_pos.y,dx
+			mov bx,snake_tail_pos.x
+			mov dx,snake_tail_pos.y
 			mov cl,dir_nu
 			call set_map_pos
 			;绘制空方块（背景）
@@ -465,7 +469,7 @@ draw_all_map proc;无参数
 
 	mov bx,word ptr snake_tail_pos.x
 	mov dx,word ptr snake_tail_pos.y
-	mov al,snake_head
+	mov al,snake_tail
 	call draw_block;绘制蛇尾
 
 	pop dx
@@ -582,27 +586,30 @@ pos_to_screen endp
 	bsy dw 0
 ;绘制方块
 draw_block proc;al=颜色 bx=x dx=y
+	push ax
+	push bx
 	push cx
 	push dx
 
 	call pos_to_screen;调用转换
-
-	mov bh,0
-	mov ah,0ch;绘制点
-	;绘制block_side大小的矩形
 
 	mov bsx,bx
 	mov bsy,dx
 
 	add bsx,block_side
 	add bsy,block_side
+
+	mov bh,0
+	mov ah,0ch;绘制点
+	;绘制block_side大小的矩形
 	
 	;双重for循环
 	drb0:
 	cmp dx,bsy
 	jnb drb0_;无符号不小于时转移
 		
-		mov cx,bx;恢复cx到传入大小
+		mov cx,bsx
+		sub cx,block_side;恢复cx到传入大小
 		drb1:
 		cmp cx,bsx
 		jnb drb1_;无符号不小于时转移
@@ -619,10 +626,13 @@ draw_block proc;al=颜色 bx=x dx=y
 
 	pop dx
 	pop cx
+	pop bx
+	pop ax
 	ret
 draw_block endp
 
 ;安装int9h键盘中断例程
+;TODO：后续修改安装位置和中断，目前安装方式会导致dosbox程序结束后允许其他程序时崩溃
 install_int9h_routine proc;无参数
 	pusha
 	push es
