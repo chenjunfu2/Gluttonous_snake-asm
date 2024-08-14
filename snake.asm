@@ -578,11 +578,11 @@ spawn_snake_food proc;无参数
 	mov ax,bx
 	div di
 
-	mov bx,dx;保存余数
+	mov di,dx;保存余数
 
 	;查表获取随机数作为下标表示的坐标
-	mov bx,word ptr map_nu[bx].x
-	mov dx,word ptr map_nu[bx].y
+	mov bx,word ptr map_nu[di].x
+	mov dx,word ptr map_nu[di].y
 	mov al,snake_food;绘制新食物
 	call draw_block
 	mov cl,dir_fd
