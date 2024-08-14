@@ -40,6 +40,7 @@ stack ends
 
 data segment
 	snake_move_speed dw 2 dup(0)
+	speed_bit_save db 0
 	snake_head_pos dw 2 dup(0)
 	snake_tail_pos dw 2 dup(0)
 	new_snake_head_pos dw 2 dup(0)
@@ -222,11 +223,7 @@ main proc
 	;call get_map_pos;test
 
 	;设置食物（随机生成）
-	;！！TODO
-	mov bx,3
-	mov dx,3
-	mov cl,dir_fd
-	call set_map_pos
+	call spawn_snake_food
 
 	;初始长度2
 	mov snake_length,2
@@ -330,22 +327,23 @@ main proc
 			mov ch,is_fast_speed
 			test ch,ch
 			jnz mul_speed
-			mov is_fast_speed,1h
-			;把循环间隔除以二
-			;带进位循环位移
-			clc;清除cf
-			rcr word ptr snake_move_speed[0],1;cf移入高位（此处为0），低位移入cf
-			rcr word ptr snake_move_speed[2],1;cf移入高位（此处为上面的退位），低位移入cf
-			jmp reget_key
+				mov is_fast_speed,1h
+				;把循环间隔除以二
+				;带进位循环位移
+				clc;清除cf
+				rcr word ptr snake_move_speed[0],1;cf移入高位（此处为0），低位移入cf
+				rcr word ptr snake_move_speed[2],1;cf移入高位（此处为上面的退位），低位移入cf
+				rcr byte ptr speed_bit_save,1;cf存入最高位
+				jmp no_change_dir
 			mul_speed:
-			mov is_fast_speed,0h
-			;把循环间隔乘以二
-			;带进位循环位移
-			clc;清除cf
-			rcl word ptr snake_move_speed[2],1;cf移入低位（此处为0），高位移入cf
-			rcl word ptr snake_move_speed[0],1;cf移入低位，高位移入cf
-			
-			jmp reget_key
+				mov is_fast_speed,0h
+				;把循环间隔乘以二
+				;带进位循环位移
+				clc;清除cf
+				rcl byte ptr speed_bit_save,1;最高位存入cf
+				rcl word ptr snake_move_speed[2],1;cf移入低位（此处为0），高位移入cf
+				rcl word ptr snake_move_speed[0],1;cf移入低位，高位移入cf
+			jmp no_change_dir
 
 		is_pause:
 		cmp cl,key_pa;暂停，直接死循环读取直到恢复
@@ -356,7 +354,7 @@ main proc
 				call get_input;cl为当前按键信息
 				cmp cl,key_pa
 			jne pause_test
-			jmp reget_key;暂停结束，重新获取一个按键
+			jmp game_loop;暂停结束，直接跳过本轮循环
 
 		is_quit:
 		cmp cl,key_qu;退出，直接跳转到末尾返回
@@ -462,10 +460,7 @@ main proc
 			jmp leave_test
 		spawn_new_food:
 			;否则如果吃到了则生成新食物
-				mov bx,3
-				mov dx,3
-				mov cl,dir_fd
-				call set_map_pos
+			call spawn_snake_food
 			;绘制新食物
 			mov al,snake_food
 			call draw_block
@@ -500,28 +495,45 @@ main proc
 main endp
 
 ;---------------------函数定义---------------------;
+;刷出食物
+spawn_snake_food proc;无参数
+	push ax
+	push bx
+	push cx
+	push dx
+
+	mov bx,3
+	mov dx,3
+	mov cl,dir_fd
+	call set_map_pos
+
+	pop dx
+	pop cx
+	pop bx
+	pop ax
+spawn_snake_food endp
 
 ;使用int16和中断获取键盘输入
 get_input proc;无参数，cl=return
 		push ax
 		push bx
 		mov cl,0
+		mov bh,0h
 		get_input_loop:
 			mov ah,01h;功能号
 			int 16h;检查是否有字符可用(ZF=0)
-			jnz no_input;没有输入，直接跳过
+			jz no_input;(ZF=1)没有输入，直接跳过
 			;否则有输入，循环读取直到没有输入或有合法输入
 			mov ah,00h
 			int 16h;ah->扫描码，al->ASCII
 		
-			mov bh,0h
 			mov bl,ah
-			mov ah,key_map[bx];扫描码查表，表内数据为方向，0为无效，否则有效
+			mov al,key_map[bx];扫描码查表，表内数据为方向，0为无效，否则有效
 		
-			test ah,ah;测试表数据，如果为0则无效按键，循环，否则执行
+			test al,al;测试表数据，如果为0则无效按键，循环，否则执行
 		jz get_input_loop
-		mov cl,ah;否则保存到cl退出循环
-		no_input:;此时cl为0返回
+		mov cl,al;有输入则保存到cl退出循环
+		no_input:;如果跳转至此则cl为0返回
 		pop bx
 		pop ax
 		ret
