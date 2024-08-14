@@ -246,8 +246,8 @@ main proc
 	;call install_int9h_routine
 
 	;设置循环速度
-	mov word ptr snake_move_speed[0],3h
-	mov word ptr snake_move_speed[2],0d40h
+	mov word ptr snake_move_speed[0],1h
+	mov word ptr snake_move_speed[2],86a0h
 
 	;设置随机数种子
 	mov ah, 2ch;21h中断读时间功能，CH:CL=时:分 DH:DL=秒:1/100秒
