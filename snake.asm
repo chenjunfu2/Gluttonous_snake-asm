@@ -51,6 +51,8 @@ data segment
 	dir_neg db dir_nu,dir_dn,dir_up,dir_rg,dir_lf
 	dir_mov dw 0000h,0000h, 0000h,0ffffh, 0000h,0001h, 0ffffh,0000h, 0001h,0000h, 0000h,0000h;nu(0,0) up(0,-1) dn(0,1) lf(-1,0) rg(1,0) fd(0,0)
 	map db map_size dup(dir_nu);地图，访问方式：y*map_x+x
+	map_nu dw (map_size*2) dup(dir_nu);记录地图空位，在这些空位上均匀生成食物
+	random_seed dw 0
 data ends
 
 ;扩展段
@@ -461,9 +463,6 @@ main proc
 		spawn_new_food:
 			;否则如果吃到了则生成新食物
 			call spawn_snake_food
-			;绘制新食物
-			mov al,snake_food
-			call draw_block
 		leave_test:
 
 		;判断刚才的输赢情况（ps：输为碰撞蛇身，赢为蛇长度大等于地图大小）
@@ -495,18 +494,63 @@ main proc
 main endp
 
 ;---------------------函数定义---------------------;
-;刷出食物
+;刷出食物并绘制
 spawn_snake_food proc;无参数
 	push ax
 	push bx
 	push cx
 	push dx
+	push di
 
-	mov bx,3
-	mov dx,3
-	mov cl,dir_fd
-	call set_map_pos
+	;扫描地图，找到所有空位并记录，均匀的在这些空位上生成一个食物
+	mov di,0h;存储当前下标，最后作为map_nu的最大大小
 
+	mov dx,0
+	l0:
+	cmp dx,map_y
+	jae b0
+	
+		mov bx,0
+		l1:
+		cmp bx,map_x
+		jae b1
+			;获取地图数据
+			call get_map_pos
+			test cl,cl
+			jnz no_spawn;不为0代表有东西，不能生成在这里
+				;为0则可生成，记录坐标
+				mov cx,2
+				shl di,cx;左移2（乘以4访问）
+
+				mov word ptr map_nu[di].x,bx
+				mov word ptr map_nu[di].y,dx
+
+				shr di,cx;除以4归位
+				inc di
+			no_spawn:
+		inc bx
+		jmp l1
+		b1:
+	
+	inc dx
+	jmp l0
+	b0:
+
+	mov map_nu_max,di;存储最大值
+	;在0到di之间生成均匀随机数
+
+
+
+	
+
+	;查表获取随机数作为下标表示的坐标
+	mov bx,word ptr map_nu[di].x
+	mov dx,word ptr map_nu[di].y
+	;绘制新食物
+	mov al,snake_food
+	call draw_block
+
+	pop di
 	pop dx
 	pop cx
 	pop bx
@@ -573,8 +617,8 @@ draw_all_map proc;无参数
 		jmp l1
 		b1:
 	
-		inc dx
-		jmp l0
+	inc dx
+	jmp l0
 	b0:
 
 	;刚才所有有数据的位置都绘制成蛇身了，现在通过蛇头和蛇尾坐标判断绘制
