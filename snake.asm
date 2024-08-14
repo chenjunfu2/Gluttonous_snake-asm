@@ -153,9 +153,6 @@ main proc
 	mov byte ptr speed_bit_save,0h
 	mov byte ptr is_fast_speed,0h
 
-	;进行一次初始绘制
-	;call draw_all_map
-
 	;初始化完毕，开始游戏循环
 
 	mov time_event,10000000b;时间事件初始为1
@@ -560,63 +557,6 @@ get_input proc;无参数，cl=return
 		pop ax
 		ret
 get_input endp
-
-;绘制整个地图
-;draw_all_map proc;无参数
-;	push ax
-;	push bx
-;	push cx
-;	push dx
-;
-;	mov dx,0
-;	l0:
-;	cmp dx,map_y
-;	jae b0
-;	
-;		mov bx,0
-;		l1:
-;		cmp bx,map_x
-;		jae b1
-;			;获取地图数据
-;			call get_map_pos
-;			test cl,cl
-;			jz no_draw;为0代表空白，无需绘制
-;				cmp cl,dir_fd
-;				jne no_food
-;					mov al,snake_food
-;					call draw_block
-;				jmp no_draw
-;				no_food:
-;					mov al,snake_body;不是食物绘制蛇身，否则绘制食物
-;					call draw_block
-;			no_draw:
-;
-;		inc bx
-;		jmp l1
-;		b1:
-;	
-;	inc dx
-;	jmp l0
-;	b0:
-;
-;	;刚才所有有数据的位置都绘制成蛇身了，现在通过蛇头和蛇尾坐标判断绘制
-;
-;	mov bx,word ptr snake_head_pos.x
-;	mov dx,word ptr snake_head_pos.y
-;	mov al,snake_head
-;	call draw_block;绘制蛇头
-;
-;	mov bx,word ptr snake_tail_pos.x
-;	mov dx,word ptr snake_tail_pos.y
-;	mov al,snake_tail
-;	call draw_block;绘制蛇尾
-;
-;	pop dx
-;	pop cx
-;	pop bx
-;	pop ax
-;	ret
-;draw_all_map endp
 
 ;蛇移动
 snake_move proc	;cl=dir,bx=x,dx=y
