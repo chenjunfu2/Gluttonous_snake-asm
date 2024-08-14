@@ -12,8 +12,8 @@ block_side equ 10
 map_x equ 80
 map_y equ 60
 map_size equ map_x*map_y
-screen_x equ map_x*block_side
-screen_y equ map_y*block_side
+screen_x equ 800
+screen_y equ 600
 screen_size equ screen_x*screen_y
 snake_head equ 00001110b
 snake_body equ 00001111b
@@ -43,26 +43,26 @@ stack segment
 stack ends
 
 data segment
-	snake_move_speed dw 2 dup(0)
-	speed_bit_save db 0
-	snake_head_pos dw 2 dup(0)
-	snake_tail_pos dw 2 dup(0)
-	new_snake_head_pos dw 2 dup(0)
-	new_snake_tail_pos dw 2 dup(0)
-	is_eat_food db 0
-	is_fast_speed db 0
-	snake_length dw 0
-	dir_neg db dir_nu,dir_dn,dir_up,dir_rg,dir_lf
-	dir_mov dw 0000h,0000h, 0000h,0ffffh, 0000h,0001h, 0ffffh,0000h, 0001h,0000h, 0000h,0000h;nu(0,0) up(0,-1) dn(0,1) lf(-1,0) rg(1,0) fd(0,0)
-	map db map_size dup(dir_nu);地图，访问方式：y*map_x+x
-	map_nu dw (map_size*2) dup(dir_nu);记录地图空位，在这些空位上均匀生成食物
-	random_seed dw 0
+	snake_move_speed dw 2 dup()
+	speed_bit_save db 1 dup()
+	snake_head_pos dw 2 dup()
+	snake_tail_pos dw 2 dup()
+	new_snake_head_pos dw 2 dup()
+	new_snake_tail_pos dw 2 dup()
+	is_eat_food db 1 dup()
+	is_fast_speed db 1 dup()
+	snake_length dw 1 dup()
+	random_seed dw 1 dup()
+	dir_neg db dir_nu,dir_dn,dir_up,dir_rg,dir_lf;只读
+	dir_mov dw 0000h,0000h, 0000h,0ffffh, 0000h,0001h, 0ffffh,0000h, 0001h,0000h, 0000h,0000h;nu(0,0) up(0,-1) dn(0,1) lf(-1,0) rg(1,0) fd(0,0)只读
+	map db map_size dup();地图，访问方式：y*map_x+x
+	map_nu dw (map_size*2) dup();记录地图空位，在这些空位上均匀生成食物
 data ends
 
 ;扩展段
 extra segment
 	key_map db 255 dup(key_nu);按键映射，访问方式：扫描码查表
-	time_event db 0
+	time_event db 1 dup()
 extra ends
 
 
@@ -91,7 +91,22 @@ main proc
 	int 10h;调用图形中断
 	no_set_screen:
 
+	;设置按键映射
+	mov byte ptr key_map[48h],key_up;48h 上 -> up Arrow
+	mov byte ptr key_map[50h],key_dn;50h 下 -> down Arrow 
+	mov byte ptr key_map[4bh],key_lf;4bh 左 -> left Arrow 
+	mov byte ptr key_map[4dh],key_rg;4dh 右 -> right Arrow
+	mov byte ptr key_map[39h],key_sp;39h 加速 -> space
+	mov byte ptr key_map[19h],key_pa;19h 暂停 -> p
+	mov byte ptr key_map[10h],key_qu;10h 退出 -> q
+
 	restart:
+	;清空屏幕
+	call clear_screen
+
+	;清空地图
+	call clear_map
+
 	;设置头尾坐标
 	;0,1
 	mov word ptr snake_head_pos.x,1
@@ -119,18 +134,11 @@ main proc
 	;初始长度2
 	mov snake_length,2
 
-	;设置按键映射
-	mov byte ptr key_map[48h],key_up;48h 上 -> up Arrow
-	mov byte ptr key_map[50h],key_dn;50h 下 -> down Arrow 
-	mov byte ptr key_map[4bh],key_lf;4bh 左 -> left Arrow 
-	mov byte ptr key_map[4dh],key_rg;4dh 右 -> right Arrow
-	mov byte ptr key_map[39h],key_sp;39h 加速 -> space
-	mov byte ptr key_map[19h],key_pa;19h 暂停 -> p
-	mov byte ptr key_map[10h],key_qu;10h 退出 -> q
-
 	;设置循环速度
 	mov word ptr snake_move_speed[0],1h
 	mov word ptr snake_move_speed[2],86a0h
+	mov byte ptr speed_bit_save,0h
+	mov byte ptr is_fast_speed,0h
 
 	;设置随机数种子
 	mov ah, 2ch;21h中断读时间功能，CH:CL=时:分 DH:DL=秒:1/100秒
@@ -276,8 +284,6 @@ main proc
 		jmp long_jmp_lose;二次远跳转
 		eat_food:
 		mov is_eat_food,1;吃到设置1
-		inc snake_length;递增蛇长度
-
 		allow_move:
 		mov al,is_eat_food
 		test al,al
@@ -330,29 +336,43 @@ main proc
 			mov word ptr snake_tail_pos.y,dx
 			jmp leave_test
 		spawn_new_food:
-			;否则如果吃到了则生成新食物
+			;否则如果吃到了
+			inc word ptr snake_length;递增蛇长度
+			cmp word ptr snake_length,map_size;判断当前长度，如果赢了，则跳转到赢的位置
+			jnae no_win
+				jmp long_jmp_win
+			no_win:
+			;没赢则生成新食物
 			call spawn_snake_food
 		leave_test:
+jmp game_loop
 
-		;判断刚才的输赢情况（ps：输为碰撞蛇身，赢为蛇长度大等于地图大小）
-		;输或赢则显示输赢情况和分数（最终长度）
-		jmp no_lose
-		long_jmp_lose:
-			;输了
-			loop1:
-			nop;偷懒先写死循环
-			jmp loop1
-			
-		no_lose:
-		cmp snake_length,map_size
-		jnae no_win
-			;赢了
-			loop2:
-			nop;偷懒先写死循环
-			jmp loop2
+	;判断刚才的输赢情况（ps：输为碰撞蛇身，赢为蛇长度大等于地图大小）
+	;输或赢则显示输赢情况和分数（最终长度）
+	long_jmp_lose:
+		;输了，输出信息（偷懒不做），然后等待重开或退出
+		jmp wait_quit_or_restart
+	long_jmp_win:
+		;赢了，输出信息（偷懒不做），然后等待重开或退出
+		jmp wait_quit_or_restart
 
-		no_win:
-	jmp game_loop
+	jmp wait_quit_or_restart;跳过数据
+	switch_quit_or_restart dw offset restart,offset return
+	;循环结束
+	wait_quit_or_restart:
+	call get_input;cl为当前按键信息
+	;判断是不是退出或暂停（重开）按键
+	cmp cl,key_pa;加速
+	jb wait_quit_or_restart;小于key_pa，丢弃
+	cmp cl,key_qu
+	ja wait_quit_or_restart;大于key_qu，非法按键，重获取
+
+	;以下是特殊按键选择处理
+	sub cl,key_pa
+	mov bh,0h
+	mov bl,cl
+	shl bx,1;bx*2（因为是dw数据2byte）
+	jmp word ptr switch_quit_or_restart[bx];直接根据查表结果
 
 ;---------------------结束返回---------------------;
 	return:
@@ -362,6 +382,63 @@ main proc
 main endp
 
 ;---------------------函数定义---------------------;
+;清空屏幕
+clear_screen proc
+	push ax
+	push bx
+	push cx
+	push dx
+
+	mov bh,0;手动设置页码
+	mov ah,0ch;绘制点
+	mov al,background;颜色
+
+	mov dx,0
+	cl0:
+	cmp dx,screen_y
+	jge cb0
+		mov cx,0
+		cl1:
+		cmp cx,screen_x
+		jge cb1
+			int 10h;调用图形中断
+		inc cx
+		jmp cl1
+		cb1:
+	inc dx
+	jmp cl0
+	cb0:
+
+	pop dx
+	pop cx
+	pop bx
+	pop ax
+	ret
+clear_screen endp
+
+;清空地图
+clear_map proc;无参数
+	push ax
+	push cx
+	push es
+	push di
+
+	mov ax,data
+	mov es,ax
+	lea ax,map
+	mov di,ax
+
+	mov al,dir_nu
+	mov cx,map_size
+	rep stosb;串传送指令
+
+	pop di
+	pop es
+	pop cx
+	pop ax
+	ret
+clear_map endp
+
 ;刷出食物并绘制
 spawn_snake_food proc;无参数
 	push ax
@@ -403,6 +480,9 @@ spawn_snake_food proc;无参数
 	inc dx
 	jmp _l0
 	_b0:
+
+	test di,di
+	jz spawn_snake_food_ret;如果di为0则没有办法生成食物，直接返回
 
 	;di存储map_nu最大值
 	;在0到di之间生成均匀随机数
@@ -448,6 +528,7 @@ spawn_snake_food proc;无参数
 	mov cl,dir_fd
 	call set_map_pos;设置地图
 
+	spawn_snake_food_ret:
 	pop di
 	pop dx
 	pop cx
