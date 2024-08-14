@@ -56,7 +56,6 @@ data segment
 	dir_neg db dir_nu,dir_dn,dir_up,dir_rg,dir_lf;只读
 	dir_mov dw 0000h,0000h, 0000h,0ffffh, 0000h,0001h, 0ffffh,0000h, 0001h,0000h, 0000h,0000h;nu(0,0) up(0,-1) dn(0,1) lf(-1,0) rg(1,0) fd(0,0)只读
 	map db map_size dup();地图，访问方式：y*map_x+x
-	map_nu dw (map_size*2) dup();记录地图空位，在这些空位上均匀生成食物
 data ends
 
 ;扩展段
@@ -100,6 +99,16 @@ main proc
 	mov byte ptr key_map[19h],key_pa;19h 暂停 -> p
 	mov byte ptr key_map[10h],key_qu;10h 退出 -> q
 
+	;设置随机数种子（在食物生成之前设置）
+	mov ah,2ch;21h中断读时间功能，CH:CL=时:分 DH:DL=秒:1/100秒
+	int 21h
+	;秒*100+1/100秒
+	mov al,100
+	mul dh;ax=al*dh
+	mov dh,0h
+	add ax,dx
+	mov random_seed,ax
+
 	restart:
 	;清空屏幕
 	call clear_screen
@@ -119,20 +128,24 @@ main proc
 	;设置地图
 	mov bx,word ptr snake_head_pos.x
 	mov dx,word ptr snake_head_pos.y
+	mov al,snake_head
+	call draw_block
 	mov cl,dir_rg
 	call set_map_pos
 
 
 	mov bx,word ptr snake_tail_pos.x
 	mov dx,word ptr snake_tail_pos.y
+	mov al,snake_tail
+	call draw_block
 	mov cl,dir_rg
 	call set_map_pos
 
+	;生成食物之前设置初始长度2
+	mov snake_length,2
+
 	;设置食物（随机生成）
 	call spawn_snake_food
-
-	;初始长度2
-	mov snake_length,2
 
 	;设置循环速度
 	mov word ptr snake_move_speed[0],1h
@@ -140,21 +153,12 @@ main proc
 	mov byte ptr speed_bit_save,0h
 	mov byte ptr is_fast_speed,0h
 
-	;设置随机数种子
-	mov ah, 2ch;21h中断读时间功能，CH:CL=时:分 DH:DL=秒:1/100秒
-	int 21h
-	;秒*100+1/100秒
-	mov al,100
-	mul dh;ax=al*dh
-	mov dh,0h
-	add ax,dx
-	mov random_seed,ax
+	;进行一次初始绘制
+	;call draw_all_map
 
 	;初始化完毕，开始游戏循环
-	;先进行一次初始绘制
-	call draw_all_map
 
-	mov time_event,10000000b;事件初始为1
+	mov time_event,10000000b;时间事件初始为1
 	game_loop:
 		;游戏刻时间判断，直到时间到达，才进行下面的流程，否则无限循环等待
 		time_event_test:;时间事件测试
@@ -445,47 +449,15 @@ spawn_snake_food proc;无参数
 	push bx
 	push cx
 	push dx
-	push di
 
-	;扫描地图，找到所有空位并记录，均匀的在这些空位上生成一个食物
-	mov di,0h;存储当前下标，最后作为map_nu的最大大小
+	;计算剩余空间
+	mov ax,map_size
+	sub ax,snake_length;sub根据目标操作数修改ZF标志位，可以直接判断
+	jz spawn_snake_food_ret;如果剩余空间为0则没有办法生成食物，直接返回
 
-	mov dx,0
-	_l0:
-	cmp dx,map_y
-	jae _b0
-	
-		mov bx,0
-		_l1:
-		cmp bx,map_x
-		jae _b1
-			;获取地图数据
-			call get_map_pos
-			test cl,cl
-			jnz no_spawn;不为0代表有东西，不能生成在这里
-				;为0则可生成，记录坐标
-				mov cl,2
-				shl di,cl;左移2（乘以4访问）
+	mov dx,ax;保存ax
 
-				mov word ptr map_nu[di].x,bx
-				mov word ptr map_nu[di].y,dx
-
-				shr di,cl;除以4归位
-				inc di
-			no_spawn:
-		inc bx
-		jmp _l1
-		_b1:
-	
-	inc dx
-	jmp _l0
-	_b0:
-
-	test di,di
-	jz spawn_snake_food_ret;如果di为0则没有办法生成食物，直接返回
-
-	;di存储map_nu最大值
-	;在0到di之间生成均匀随机数
+	;在0到ax之间生成均匀随机数
 	;使用xorshift算法，这三个常量的选择需要注意，不是所有的都可以，16bit下选择798
 	;x ^= x << 7;
     ;x ^= x >> 9;
@@ -511,25 +483,51 @@ spawn_snake_food proc;无参数
 	mov random_seed,bx
 
 	;进行求模
-	;dx=dx:ax%di
-	mov dx,0
+	;dx=dx:ax%bx
 	mov ax,bx
-	div di
+	mov bx,dx;原ax
+	mov dx,0
+	div bx
+	mov ax,dx
 
-	mov di,dx;保存余数
-	mov cl,2;乘以4访问
-	shl di,cl
 
-	;查表获取随机数作为下标表示的坐标
-	mov bx,word ptr map_nu[di].x
-	mov dx,word ptr map_nu[di].y
-	mov al,snake_food;绘制新食物
-	call draw_block
-	mov cl,dir_fd
-	call set_map_pos;设置地图
+	;扫描地图，找到第ax个空位并记录，相当于均匀的在这些空位上生成一个食物
+
+	mov dx,0
+	_l0:
+	cmp dx,map_y
+	jae _b0
+	
+		mov bx,0
+		_l1:
+		cmp bx,map_x
+		jae _b1
+			;获取地图数据
+			call get_map_pos
+			test cl,cl
+			jnz no_spawn;不为0代表有东西，不能生成在这里
+				;为0则可生成，递减ax
+				test ax,ax;判断ax是否为0
+				jnz no_direct
+					;ax为0说明当前是第ax个空位
+					;食物生成在当前这里，bx和dx所指的位置
+					mov al,snake_food;绘制新食物
+					call draw_block
+					mov cl,dir_fd
+					call set_map_pos;设置地图
+					jmp spawn_snake_food_ret;结束生成
+				no_direct:
+				dec ax;不是目标位置，递减ax
+			no_spawn:
+		inc bx
+		jmp _l1
+		_b1:
+	
+	inc dx
+	jmp _l0
+	_b0:
 
 	spawn_snake_food_ret:
-	pop di
 	pop dx
 	pop cx
 	pop bx
@@ -564,61 +562,61 @@ get_input proc;无参数，cl=return
 get_input endp
 
 ;绘制整个地图
-draw_all_map proc;无参数
-	push ax
-	push bx
-	push cx
-	push dx
-
-	mov dx,0
-	l0:
-	cmp dx,map_y
-	jae b0
-	
-		mov bx,0
-		l1:
-		cmp bx,map_x
-		jae b1
-			;获取地图数据
-			call get_map_pos
-			test cl,cl
-			jz no_draw;为0代表空白，无需绘制
-				cmp cl,dir_fd
-				jne no_food
-					mov al,snake_food
-					call draw_block
-				jmp no_draw
-				no_food:
-					mov al,snake_body;不是食物绘制蛇身，否则绘制食物
-					call draw_block
-			no_draw:
-
-		inc bx
-		jmp l1
-		b1:
-	
-	inc dx
-	jmp l0
-	b0:
-
-	;刚才所有有数据的位置都绘制成蛇身了，现在通过蛇头和蛇尾坐标判断绘制
-
-	mov bx,word ptr snake_head_pos.x
-	mov dx,word ptr snake_head_pos.y
-	mov al,snake_head
-	call draw_block;绘制蛇头
-
-	mov bx,word ptr snake_tail_pos.x
-	mov dx,word ptr snake_tail_pos.y
-	mov al,snake_tail
-	call draw_block;绘制蛇尾
-
-	pop dx
-	pop cx
-	pop bx
-	pop ax
-	ret
-draw_all_map endp
+;draw_all_map proc;无参数
+;	push ax
+;	push bx
+;	push cx
+;	push dx
+;
+;	mov dx,0
+;	l0:
+;	cmp dx,map_y
+;	jae b0
+;	
+;		mov bx,0
+;		l1:
+;		cmp bx,map_x
+;		jae b1
+;			;获取地图数据
+;			call get_map_pos
+;			test cl,cl
+;			jz no_draw;为0代表空白，无需绘制
+;				cmp cl,dir_fd
+;				jne no_food
+;					mov al,snake_food
+;					call draw_block
+;				jmp no_draw
+;				no_food:
+;					mov al,snake_body;不是食物绘制蛇身，否则绘制食物
+;					call draw_block
+;			no_draw:
+;
+;		inc bx
+;		jmp l1
+;		b1:
+;	
+;	inc dx
+;	jmp l0
+;	b0:
+;
+;	;刚才所有有数据的位置都绘制成蛇身了，现在通过蛇头和蛇尾坐标判断绘制
+;
+;	mov bx,word ptr snake_head_pos.x
+;	mov dx,word ptr snake_head_pos.y
+;	mov al,snake_head
+;	call draw_block;绘制蛇头
+;
+;	mov bx,word ptr snake_tail_pos.x
+;	mov dx,word ptr snake_tail_pos.y
+;	mov al,snake_tail
+;	call draw_block;绘制蛇尾
+;
+;	pop dx
+;	pop cx
+;	pop bx
+;	pop ax
+;	ret
+;draw_all_map endp
 
 ;蛇移动
 snake_move proc	;cl=dir,bx=x,dx=y
