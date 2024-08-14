@@ -579,6 +579,8 @@ spawn_snake_food proc;无参数
 	div di
 
 	mov di,dx;保存余数
+	mov cl,2;乘以4访问
+	shl di,cl
 
 	;查表获取随机数作为下标表示的坐标
 	mov bx,word ptr map_nu[di].x
@@ -593,6 +595,7 @@ spawn_snake_food proc;无参数
 	pop cx
 	pop bx
 	pop ax
+	ret
 spawn_snake_food endp
 
 ;使用int16和中断获取键盘输入
