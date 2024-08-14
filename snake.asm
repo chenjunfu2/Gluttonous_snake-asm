@@ -1,4 +1,8 @@
-;.186;使用80186的pusha和popa
+;-----------------------chenjunfu2-----------------------;
+;-----------------------2024/08/14-----------------------;
+;Link:https://github.com/chenjunfu2/Gluttonous_snake-asm/;
+;--------------------Gluttonous_snake--------------------;
+
 assume cs:code,ds:data,ss:stack,es:extra
 
 ;debug模式
@@ -410,7 +414,7 @@ main proc
 		;如果不是，判断坐标是不是等于蛇尾
 		cmp bx,snake_tail_pos.x
 		jne lose;如果还不等于，则说明吃掉蛇身，输
-		cmp dx,snake_head_pos.y
+		cmp dx,snake_tail_pos.y
 		jne lose;如果还不等于，则说明吃掉蛇身，输
 		jmp allow_move;如果都等于，则允许移动
 		lose:;输了
