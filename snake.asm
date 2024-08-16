@@ -8,31 +8,31 @@ assume cs:code,ds:data,ss:stack,es:extra
 ;debug模式
 debug equ 0
 ;常量数据
-block_side equ 10
-map_x equ 80
-map_y equ 60
+block_side equ 10;每个蛇方块的大小
+map_x equ 80;地图大小x
+map_y equ 60;地图大小y
 map_size equ map_x*map_y
-screen_x equ 800
-screen_y equ 600
+screen_x equ 800;屏幕大小x
+screen_y equ 600;屏幕大小y
 screen_size equ screen_x*screen_y
-snake_head equ 00001110b
-snake_body equ 00001111b
-snake_tail equ 00000111b
-snake_food equ 00000010b
-background equ 00000000b
-x equ 0
-y equ 2
-dir_nu equ 0
-dir_up equ 1
-dir_dn equ 2
-dir_lf equ 3
-dir_rg equ 4
-dir_fd equ 5
-key_nu equ dir_nu
-key_up equ dir_up
-key_dn equ dir_dn
-key_lf equ dir_lf
-key_rg equ dir_rg
+snake_head equ 00001110b;蛇头颜色
+snake_body equ 00001111b;蛇身颜色
+snake_tail equ 00000111b;蛇尾颜色
+snake_food equ 00000010b;食物颜色
+background equ 00000000b;背景颜色
+x equ 0;用于访问坐标x
+y equ 2;用于访问坐标y
+dir_nu equ 0	 ;方向空
+dir_up equ 1	 ;方向上
+dir_dn equ 2	 ;方向下
+dir_lf equ 3	 ;方向左
+dir_rg equ 4	 ;方向右
+dir_fd equ 5	 ;食物
+key_nu equ dir_nu;按键空
+key_up equ dir_up;按键上
+key_dn equ dir_dn;按键下
+key_lf equ dir_lf;按键左
+key_rg equ dir_rg;按键右
 key_sp equ 5;加速按键
 key_pa equ 6;暂停按键
 key_qu equ 7;退出按键
@@ -43,25 +43,25 @@ stack segment
 stack ends
 
 data segment
-	snake_move_speed dw 2 dup()
-	speed_bit_save db 1 dup()
-	snake_head_pos dw 2 dup()
-	snake_tail_pos dw 2 dup()
-	new_snake_head_pos dw 2 dup()
-	new_snake_tail_pos dw 2 dup()
-	is_eat_food db 1 dup()
-	is_fast_speed db 1 dup()
-	snake_length dw 1 dup()
-	random_seed dw 1 dup()
-	dir_neg db dir_nu,dir_dn,dir_up,dir_rg,dir_lf;只读
-	dir_mov dw 0000h,0000h, 0000h,0ffffh, 0000h,0001h, 0ffffh,0000h, 0001h,0000h, 0000h,0000h;nu(0,0) up(0,-1) dn(0,1) lf(-1,0) rg(1,0) fd(0,0)只读
-	map db map_size dup();地图，访问方式：y*map_x+x
+	snake_move_speed dw 2 dup();蛇移动速度
+	speed_bit_save db 1 dup();加速位移数据保存（加速时相当于把snake_move_speed代表的等待时间除以二，右移，为了保留最低位以便退出加速时恢复）
+	snake_head_pos dw 2 dup();蛇头当前位置
+	snake_tail_pos dw 2 dup();蛇尾当前位置
+	new_snake_head_pos dw 2 dup();新的蛇头位置
+	new_snake_tail_pos dw 2 dup();新的蛇尾位置
+	is_eat_food db 1 dup();当前是否吃到了食物
+	is_fast_speed db 1 dup();当前是否是加速模式
+	snake_length dw 1 dup();蛇长度（用来判断玩家胜利）
+	random_seed dw 1 dup();随机数种子
+	dir_neg db dir_nu,dir_dn,dir_up,dir_rg,dir_lf;移动方向反转表，只读
+	dir_mov dw 0000h,0000h, 0000h,0ffffh, 0000h,0001h, 0ffffh,0000h, 0001h,0000h, 0000h,0000h;移动方向表，nu(0,0) up(0,-1) dn(0,1) lf(-1,0) rg(1,0) fd(0,0)只读
+	map db map_size dup();地图，存储dir方向数据，访问方式：y*map_x+x
 data ends
 
 ;扩展段
 extra segment
-	key_map db 255 dup(key_nu);按键映射，访问方式：扫描码查表
-	time_event db 1 dup()
+	key_map db 255 dup(key_nu);按键映射表，访问方式：扫描码查表
+	time_event db 1 dup();时间事件，用来确定游戏循环的game tick是否开始运行
 extra ends
 
 
@@ -424,7 +424,7 @@ clear_map proc;无参数
 	push es
 	push di
 
-	mov ax,data
+	mov ax,data;地图填充dir_nu（0）
 	mov es,ax
 	lea ax,map
 	mov di,ax
@@ -563,9 +563,10 @@ snake_move proc	;cl=dir,bx=x,dx=y
 	push ax
 
 	;对索引做倍增
+	mov ah,0h
 	mov al,cl
-	mov ch,4
-	mul ch;ax=al*ch(4)（用于4byte表项访问索引）
+	shl ax,1;两次左移，相当于乘以4
+	shl ax,1;ax=ax*(4)（用于4byte表项访问索引）
 	xchg ax,bx;交换ax和bx
 
 	;查表
