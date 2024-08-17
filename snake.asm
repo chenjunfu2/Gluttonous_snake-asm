@@ -9,11 +9,11 @@ assume cs:code,ds:data,ss:stack,es:extra
 debug equ 0
 ;常量数据
 block_side equ 10;每个蛇方块的大小
-map_x equ 80;地图大小x
-map_y equ 60;地图大小y
+map_x equ 32;地图大小x
+map_y equ 20;地图大小y
 map_size equ map_x*map_y
-screen_x equ 800;屏幕大小x
-screen_y equ 600;屏幕大小y
+screen_x equ 320;屏幕大小x
+screen_y equ 200;屏幕大小y
 screen_size equ screen_x*screen_y
 snake_head equ 00001110b;蛇头颜色
 snake_body equ 00001111b;蛇身颜色
@@ -85,8 +85,8 @@ main proc
 	mov al,debug
 	test al,al
 	jnz no_set_screen;debug模式不要修改屏幕
-	mov ax,4f02h;超级vga显卡
-	mov bx,0103h;800×600 256色
+	mov ah,00h;设置图形模式
+	mov al,13h;320*200 256色
 	int 10h;调用图形中断
 	no_set_screen:
 
@@ -227,10 +227,11 @@ main proc
 				rcl word ptr snake_move_speed[2],1;cf移入低位（此处为0），高位移入cf
 				rcl word ptr snake_move_speed[0],1;cf移入低位，高位移入cf
 				jmp no_change_dir
-		is_pause:;暂停，直接死循环读取直到恢复
+		is_pause:;暂停，直接死循环读取直到恢复或退出
 			pause_test:
-				;mov cl,last_input_pos
 				call get_input;cl为当前按键信息
+				cmp cl,key_qu
+				je is_quit;不能直接跳到return，太远了，利用is_quit进行二次跳转
 				cmp cl,key_pa
 			jne pause_test
 			jmp game_loop;暂停结束，直接跳过本轮循环
@@ -386,33 +387,24 @@ main endp
 ;清空屏幕
 clear_screen proc
 	push ax
-	push bx
 	push cx
-	push dx
+	push es
+	push di
+	
+	;视频像素地址
+	mov ax,0a000h
+	mov es,ax
+	mov ax,0h
+	mov di,ax
 
-	mov bh,0;手动设置页码
-	mov ah,0ch;绘制点
 	mov al,background;颜色
+	mov cx,screen_x*screen_y;设置屏幕大小
+	cld;清除DF标志位，rep正向移动
+	rep stosb;串传送指令
 
-	mov dx,0
-	cl0:
-	cmp dx,screen_y
-	jge cb0
-		mov cx,0
-		cl1:
-		cmp cx,screen_x
-		jge cb1
-			int 10h;调用图形中断
-		inc cx
-		jmp cl1
-		cb1:
-	inc dx
-	jmp cl0
-	cb0:
-
-	pop dx
+	pop di
+	pop es
 	pop cx
-	pop bx
 	pop ax
 	ret
 clear_screen endp
@@ -431,6 +423,7 @@ clear_map proc;无参数
 
 	mov al,dir_nu
 	mov cx,map_size
+	cld;清除DF标志位，rep正向移动
 	rep stosb;串传送指令
 
 	pop di
@@ -660,50 +653,49 @@ pos_to_screen proc;(bx=x dx=y)
 pos_to_screen endp
 
 
-	
-;数据一定要定义在函数之前，否则会被当成代码执行到
-	bsx dw 0
-	bsy dw 0
 ;绘制方块
 draw_block proc;al=颜色 bx=x dx=y
 	push ax
 	push bx
 	push cx
 	push dx
+	push es
+	push di
 
 	call pos_to_screen;调用转换
 
-	mov bsx,bx
-	mov bsy,dx
-
-	add bsx,block_side
-	add bsy,block_side
-
-	mov bh,0
-	mov ah,0ch;绘制点
 	;绘制block_side大小的矩形
+	;从Y(dx)*screen_x位置开始，绘制一行，然后起始位置递增screen_x，绘制下一行
+
+	mov cl,al;保存颜色信息
 	
-	;双重for循环
-	drb0:
-	cmp dx,bsy
-	jnb drb0_;无符号不小于时转移
+	;start_addr(bx)=Y(dx)*screen_x(ax)+X(bx)
+	mov ax,screen_x
+	mul dx
+	add ax,bx
+	mov bx,ax;bx存储起始地址
+
+	mov al,cl;恢复颜色信息
+
+	mov dx,0a000h
+	mov es,dx;视频像素地址作为段地址
+
+	cld;清除DF标志位，rep正向移动
+	mov cx,block_side;循环block_side次（绘制block_side行）
+	draw_y_loop:
+		mov di,bx;设置到bx代表的起始地址
 		
-		mov cx,bsx
-		sub cx,block_side;恢复cx到传入大小
-		drb1:
-		cmp cx,bsx
-		jnb drb1_;无符号不小于时转移
+		mov dx,cx;保存cx
+		;这里al就是颜色，无需改变
+		mov cx,block_side;填充block_side大小的一行
+		rep stosb;代替int10h的绘图功能
+		mov cx,dx;恢复cx
 
-		int 10h
+		add bx,screen_x;bx递增screen_x大小，相当于到下一行
+	loop draw_y_loop
 
-		inc cx
-		jmp drb1
-		drb1_:
-	
-	inc dx
-	jmp drb0
-	drb0_:
-
+	pop di
+	pop es
 	pop dx
 	pop cx
 	pop bx
