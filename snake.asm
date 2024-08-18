@@ -5,16 +5,16 @@
 
 assume cs:code,ds:data,ss:stack,es:extra
 
-;debug模式
-debug equ 0
 ;常量数据
 block_side equ 10;每个蛇方块的大小
-map_x equ 32;地图大小x
-map_y equ 20;地图大小y
+map_x equ 80;地图大小x
+map_y equ 60;地图大小y
 map_size equ map_x*map_y
-screen_x equ 320;屏幕大小x
-screen_y equ 200;屏幕大小y
-screen_size equ screen_x*screen_y
+screen_x equ 800;屏幕大小x
+screen_y equ 600;屏幕大小y
+screen_mod_ax equ 4f02h;视频设置ax，超级vga显卡，0013h->320*200
+screen_mod_bx equ 0103h;视频设置bx，800×600 256色
+
 snake_head equ 00001110b;蛇头颜色
 snake_body equ 00001111b;蛇身颜色
 snake_tail equ 00000111b;蛇尾颜色
@@ -56,6 +56,8 @@ data segment
 	dir_neg db dir_nu,dir_dn,dir_up,dir_rg,dir_lf;移动方向反转表，只读
 	dir_mov dw 0000h,0000h, 0000h,0ffffh, 0000h,0001h, 0ffffh,0000h, 0001h,0000h, 0000h,0000h;移动方向表，nu(0,0) up(0,-1) dn(0,1) lf(-1,0) rg(1,0) fd(0,0)只读
 	map db map_size dup();地图，存储dir方向数据，访问方式：y*map_x+x
+	vesa_page_count dw 1 dup();vesa页面数量，初始化后只读
+	vesa_complete dw 1 dup();vesa不满一页的填充大小，初始化后只读
 data ends
 
 ;扩展段
@@ -82,13 +84,13 @@ main proc
 
 ;---------------------程序开始---------------------;
 
-	mov al,debug
-	test al,al
-	jnz no_set_screen;debug模式不要修改屏幕
-	mov ah,00h;设置图形模式
-	mov al,13h;320*200 256色
+	;设置图形模式
+	mov ax,screen_mod_ax
+	mov bx,screen_mod_bx
 	int 10h;调用图形中断
-	no_set_screen:
+
+	;设置vesa_page
+	call init_vesa_page
 
 	;设置按键映射
 	mov byte ptr key_map[48h],key_up;48h 上 -> up Arrow
@@ -384,27 +386,86 @@ jmp game_loop
 main endp
 
 ;---------------------函数定义---------------------;
+init_vesa_page proc	;计算vesa_page_size
+	push ax
+	push bx
+	push dx
+
+	mov ax,screen_x
+	mov dx,screen_y
+	mul dx;dx:ax=ax*dx
+
+	;因为一个段大小是65536，即1'0000'0000b大小，刚好不用做除法
+	;dx高位相当于dx:ax除以65536的商，ax低位相当于dx:ax求模65536的值
+	mov vesa_page_count,dx;dx高位字节相当于段数量
+	mov vesa_complete,ax;ax低位相当于不满一个段的大小
+
+	pop dx
+	pop bx
+	pop ax
+	ret
+init_vesa_page endp
+
 ;清空屏幕
 clear_screen proc
 	push ax
+	push bx
 	push cx
+	push dx
 	push es
 	push di
-	
-	;视频像素地址
-	mov ax,0a000h
+
+	;设置一次段地址
+	mov ax,0a000h;视频像素地址
 	mov es,ax
-	mov ax,0h
-	mov di,ax
 
-	mov al,background;颜色
-	mov cx,screen_x*screen_y;设置屏幕大小
 	cld;清除DF标志位，rep正向移动
-	rep stosb;串传送指令
+	mov cx,0
+	cls_loop:
+	cmp cx,vesa_page_count
+	jae leave_cls_loop;cx<vesa_page_count循环
 
+		;设置当前页面
+		mov ax,4f05h
+		mov bx,0h
+		mov dx,cx
+		int 10h
+
+		;每次打印一页，然后换页
+		push cx
+		mov al,background
+		mov cx,0ffffh
+		mov di,0h
+		rep stosb;串传送指令
+		stosb;因为cx大小限制，stosb只会运行65535次，还差一次，手动补一次
+		pop cx
+
+	inc cx
+	jmp cls_loop
+	leave_cls_loop:
+
+	mov ax,vesa_complete
+	test ax,ax
+	jz clear_screen_ret;如果补全大小为0则直接离开
+
+		;设置当前页面
+		mov ax,4f05h
+		mov bx,0h
+		mov dx,cx
+		int 10h
+
+		mov al,background
+		mov cx,vesa_complete
+		mov di,0h
+		rep stosb;串传送指令
+		;stosb;
+
+	clear_screen_ret:
 	pop di
 	pop es
+	pop dx
 	pop cx
+	pop bx
 	pop ax
 	ret
 clear_screen endp
@@ -450,8 +511,8 @@ spawn_snake_food proc;无参数
 	;在0到ax之间生成均匀随机数
 	;使用xorshift算法，这三个常量的选择需要注意，不是所有的都可以，16bit下选择798
 	;x ^= x << 7;
-    ;x ^= x >> 9;
-    ;x ^= x << 8;
+	;x ^= x >> 9;
+	;x ^= x << 8;
 
 	mov bx,random_seed
 
@@ -632,7 +693,7 @@ get_map_pos proc;cl=return bx=x,dx=y
 get_map_pos endp
 
 	
-;地图坐标转换到屏幕坐标，修改cx和dx为原来的十倍
+;地图坐标转换到屏幕坐标，修改bx和dx为原来的十倍
 pos_to_screen proc;(bx=x dx=y)
 	push ax
 	push cx
@@ -653,6 +714,7 @@ pos_to_screen proc;(bx=x dx=y)
 pos_to_screen endp
 
 
+
 ;绘制方块
 draw_block proc;al=颜色 bx=x dx=y
 	push ax
@@ -667,31 +729,52 @@ draw_block proc;al=颜色 bx=x dx=y
 	;绘制block_side大小的矩形
 	;从Y(dx)*screen_x位置开始，绘制一行，然后起始位置递增screen_x，绘制下一行
 
-	mov cl,al;保存颜色信息
-	
-	;start_addr(bx)=Y(dx)*screen_x(ax)+X(bx)
+	mov cx,0a000h
+	mov es,cx;视频像素地址作为段地址
+
+	push ax;保存颜色信息
+
+	;计算当前页面号
 	mov ax,screen_x
-	mul dx
-	add ax,bx
-	mov bx,ax;bx存储起始地址
+	mul dx;dx:ax=Y(dx)*screen_x(ax)+x(bx)
+	add ax,bx;加上x偏移量
+	adc dx,0h;带进位加到dx（高位）
 
-	mov al,cl;恢复颜色信息
+	;dx是页面号，ax是偏移量
+	mov cx,ax;偏移量放入cx
 
-	mov dx,0a000h
-	mov es,dx;视频像素地址作为段地址
+	;设置当前页面号为dx
+	mov ax,4f05h;功能号放ax
+	mov bx,0h;bx为0设置页面
+	int 10h
 
+	pop ax;恢复颜色信息
+
+	mov bx,cx;偏移量放入bx
 	cld;清除DF标志位，rep正向移动
 	mov cx,block_side;循环block_side次（绘制block_side行）
 	draw_y_loop:
 		mov di,bx;设置到bx代表的起始地址
 		
-		mov dx,cx;保存cx
+		push cx;保存cx
 		;这里al就是颜色，无需改变
 		mov cx,block_side;填充block_side大小的一行
 		rep stosb;代替int10h的绘图功能
-		mov cx,dx;恢复cx
+		pop cx;恢复cx
 
 		add bx,screen_x;bx递增screen_x大小，相当于到下一行
+		jnc no_change_page;没溢出不管
+			;bx溢出，切换到下一个页面
+			push ax
+			push bx
+			;切换到到下一个页面（dx+1）
+			mov ax,4f05h;功能号放ax
+			mov bx,0h;bx为0设置页面
+			inc dx;页面号递增，已经知道溢出了，就没必要再用adc，直接inc即可
+			int 10h
+			pop bx
+			pop ax
+		no_change_page:
 	loop draw_y_loop
 
 	pop di
