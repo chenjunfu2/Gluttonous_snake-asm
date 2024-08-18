@@ -227,10 +227,11 @@ main proc
 				rcl word ptr snake_move_speed[2],1;cf移入低位（此处为0），高位移入cf
 				rcl word ptr snake_move_speed[0],1;cf移入低位，高位移入cf
 				jmp no_change_dir
-		is_pause:;暂停，直接死循环读取直到恢复
+		is_pause:;暂停，直接死循环读取直到恢复或退出
 			pause_test:
-				;mov cl,last_input_pos
 				call get_input;cl为当前按键信息
+				cmp cl,key_qu
+				je is_quit;不能直接跳到return，太远了，利用is_quit进行二次跳转
 				cmp cl,key_pa
 			jne pause_test
 			jmp game_loop;暂停结束，直接跳过本轮循环
@@ -431,6 +432,7 @@ clear_map proc;无参数
 
 	mov al,dir_nu
 	mov cx,map_size
+	cld;清除DF标志位，rep正向移动
 	rep stosb;串传送指令
 
 	pop di
