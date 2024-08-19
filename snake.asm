@@ -406,6 +406,18 @@ init_vesa_page proc	;计算vesa_page_size
 	ret
 init_vesa_page endp
 
+;切换页面
+change_page proc;dx=page
+	push ax
+	push bx
+	mov ax,4f05h;功能号放ax
+	mov bx,0h;bx为0设置页面
+	int 10h
+	pop bx
+	pop ax
+	ret
+change_page endp
+
 ;清空屏幕
 clear_screen proc
 	push ax
@@ -420,27 +432,22 @@ clear_screen proc
 	mov es,ax
 
 	cld;清除DF标志位，rep正向移动
-	mov cx,0
+	mov dx,0
 	cls_loop:
-	cmp cx,vesa_page_count
-	jae leave_cls_loop;cx<vesa_page_count循环
+	cmp dx,vesa_page_count
+	jae leave_cls_loop;dx<vesa_page_count循环
 
-		;设置当前页面
-		mov ax,4f05h
-		mov bx,0h
-		mov dx,cx
-		int 10h
+		;设置当前页面,dx=page
+		call change_page
 
 		;每次打印一页，然后换页
-		push cx
 		mov al,background
 		mov cx,0ffffh
 		mov di,0h
 		rep stosb;串传送指令
 		stosb;因为cx大小限制，stosb只会运行65535次，还差一次，手动补一次
-		pop cx
 
-	inc cx
+	inc dx
 	jmp cls_loop
 	leave_cls_loop:
 
@@ -448,17 +455,13 @@ clear_screen proc
 	test ax,ax
 	jz clear_screen_ret;如果补全大小为0则直接离开
 
-		;设置当前页面
-		mov ax,4f05h
-		mov bx,0h
-		mov dx,cx
-		int 10h
+		;设置当前页面,dx=page
+		call change_page
 
 		mov al,background
 		mov cx,vesa_complete
 		mov di,0h
 		rep stosb;串传送指令
-		;stosb;
 
 	clear_screen_ret:
 	pop di
@@ -723,6 +726,7 @@ draw_block proc;al=颜色 bx=x dx=y
 	push dx
 	push es
 	push di
+	push si
 
 	call pos_to_screen;调用转换
 
@@ -741,42 +745,57 @@ draw_block proc;al=颜色 bx=x dx=y
 	adc dx,0h;带进位加到dx（高位）
 
 	;dx是页面号，ax是偏移量
-	mov cx,ax;偏移量放入cx
-
-	;设置当前页面号为dx
-	mov ax,4f05h;功能号放ax
-	mov bx,0h;bx为0设置页面
-	int 10h
+	mov bx,ax;偏移量放入bx
 
 	pop ax;恢复颜色信息
 
-	mov bx,cx;偏移量放入bx
+	;设置当前页面号为dx
+	call change_page
+
 	cld;清除DF标志位，rep正向移动
 	mov cx,block_side;循环block_side次（绘制block_side行）
 	draw_y_loop:
-		mov di,bx;设置到bx代表的起始地址
-		
-		push cx;保存cx
-		;这里al就是颜色，无需改变
-		mov cx,block_side;填充block_side大小的一行
-		rep stosb;代替int10h的绘图功能
-		pop cx;恢复cx
+		;判断di绘制block_side长的一行后会不会越过段边界
+		;如果会，则需要在本段绘制到末尾后切换到下一段
+		mov si,bx;设置到bx代表的起始地址
+		add si,block_side;si存储绘制block_side后的di
+		jnc normal_draw;溢出特殊绘制
+			push cx
+			;否则先绘制一个段的结尾
+			mov di,bx;设置起始地址
+			mov cx,block_side;设置为边长
+			sub cx,si;边长减去下一个段的长度得到段末尾到当前的长度
+			rep stosb;绘制
+			;然后切换到下一个段
+			inc dx
+			call change_page
+			;再绘制剩余大小
+			mov cx,si;发生环绕后si为下一个段需要绘制的长度
+			;此处无需再次设置di因为rep stosb会自动递增di，此处di刚好环绕到0
+			rep stosb;绘制
+			pop cx
+			;直接移动到下一行，不再判断是否溢出
+			add bx,screen_x;bx递增screen_x大小，相当于到下一行
+			jmp next_loop
+		normal_draw:;没溢出正常绘制一行
+			push cx;保存cx
+			;这里al就是颜色，无需改变
+			mov di,bx;设置起始地址
+			mov cx,block_side;填充block_side大小的一行
+			rep stosb;代替int10h的绘图功能
+			pop cx;恢复cx
 
-		add bx,screen_x;bx递增screen_x大小，相当于到下一行
-		jnc no_change_page;没溢出不管
-			;bx溢出，切换到下一个页面
-			push ax
-			push bx
-			;切换到到下一个页面（dx+1）
-			mov ax,4f05h;功能号放ax
-			mov bx,0h;bx为0设置页面
-			inc dx;页面号递增，已经知道溢出了，就没必要再用adc，直接inc即可
-			int 10h
-			pop bx
-			pop ax
-		no_change_page:
+			;绘制一行之后移动到下一行
+			add bx,screen_x;bx递增screen_x大小，相当于到下一行
+			jnc no_change_page;没溢出不管
+				;bx溢出，切换到下一个页面
+				inc dx;页面号递增，已经知道溢出了，就没必要再用adc，直接inc即可
+				call change_page
+			no_change_page:
+		next_loop:
 	loop draw_y_loop
 
+	pop si
 	pop di
 	pop es
 	pop dx
@@ -785,6 +804,7 @@ draw_block proc;al=颜色 bx=x dx=y
 	pop ax
 	ret
 draw_block endp
+
 
 code ends
 
