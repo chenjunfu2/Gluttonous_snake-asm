@@ -1,0 +1,105 @@
+===============================================
+TD32 RELEASE NOTES
+===============================================
+
+This file contains important supplementary and 
+late-breaking information that may not appear 
+in the main product documentation. We recommend
+that you read this file in its entirety.
+
+
+
+CONTENTS
+===============================================
+
+-- TD32INST.EXE
+-- USING SOURCE-LEVEL DEBUGGING
+-- "PROGRAM HAS NO SYMBOL TABLE" MESSAGE 
+-- SCREEN BUFFER SETTINGS
+-- MOUSE SUPPORT
+-- SETTING CONSOLE WINDOW PROPERTIES
+
+TD32INST.EXE
+===============================================
+
+Included in this distribution is TD32INST.EXE.
+Use this program to modify the configuration
+file, TDCONFIG32.TD or to create customized
+configuration files.
+
+USING SOURCE-LEVEL DEBUGGING
+===============================================
+
+To enable source-level debugging, use the -v
+switch when compiling, and again when linking.
+If the -v switch is specified at compile time
+but not link time, ILINK32 will write an
+invalid header to the .TDS file. When TD32
+attempts to read the .TDS file, it fails with a
+"not enough memory to load symbol table" error.
+
+"PROGRAM HAS NO SYMBOL TABLE" MESSAGE 
+===============================================
+If a .TDS file is out of date (older than its
+.EXE or .DLL), TD32 warns "Program has no
+symbol table".
+
+
+SCREEN BUFFER SETTINGS
+===============================================
+When run inside a console window, TD32 Debugger
+uses the entire screen buffer for its display.
+If the screen buffer is larger than the actual
+window, parts of the TD32 display are hidden by
+the edge of the console window. The user can
+see more of the TD32 display by dragging the
+edges of the window, but may be unable to see
+the entire display without scrolling.
+A procedure to eliminate this problem is
+described in "Setting Console Window
+Properties," below.
+
+MOUSE SUPPORT
+===============================================
+TD32 supports use of a mouse, but is unable to
+see mouse events if the console window has
+QuickEdit Mode enabled. To disable QuickEdit
+Mode, see "Setting Console Window Properties,"
+below.
+
+SETTING CONSOLE WINDOW PROPERTIES
+===============================================
+
+To eliminate the problems described above,
+change the console settings before running
+TD32.
+
+(1) Click on the MS-DOS icon in the upper-left
+corner of the console window, or press
+ALT-Space.
+
+(2) The window's system menu pops up. Click on
+"Properties" or press P.
+
+(3) The Proerties Dialog appears. To fix the
+screen buffer problem, click on the "Layout"
+tab. Adjust the width and height values for
+"Screen Buffer Size" and/or "Window Size" until
+they match. 
+
+(4) To fix the mouse problem, click on the
+"Options" tab. Clear the "QuickEdit Mode"
+option box.
+
+(5) Click on OK. A dialog box appears. Choose
+"Modify shortcut which started this window."
+
+You can have multiple Command Prompt shortcuts,
+each with its own window properties. Copy the
+Command Prompt.lnk file used in your Start Menu
+and give it its own set of properties.
+
+
+===============================================
+Copyright (c) 2000 Inprise Corporation. 
+All rights reserved.
