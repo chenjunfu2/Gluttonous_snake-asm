@@ -39,7 +39,7 @@ key_qu equ 7;ÍË³ö°´¼ü
 
 
 stack segment
-	db 1024 dup(0)
+	db 1024 dup()
 stack ends
 
 data segment
