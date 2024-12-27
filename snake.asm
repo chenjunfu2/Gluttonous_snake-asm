@@ -39,7 +39,7 @@ key_qu equ 7;退出按键
 
 
 stack segment
-	db 1024 dup(0)
+	db 1024 dup()
 stack ends
 
 data segment
@@ -62,6 +62,7 @@ data ends
 extra segment
 	key_map db 255 dup(key_nu);按键映射表，访问方式：扫描码查表
 	time_event db 1 dup();时间事件，用来确定游戏循环的game tick是否开始运行
+	old_screen_mode db 1 dup();保存初始视频模式，退出时恢复
 extra ends
 
 
@@ -85,6 +86,10 @@ main proc
 	mov al,debug
 	test al,al
 	jnz no_set_screen;debug模式不要修改屏幕
+	mov ah,0fh;获得当前图形模式
+	int 10h;调用图形中断
+	mov old_screen_mode,al;保存
+
 	mov ah,00h;设置图形模式
 	mov al,13h;320*200 256色
 	int 10h;调用图形中断
@@ -347,7 +352,7 @@ main proc
 			;没赢则生成新食物
 			call spawn_snake_food
 		leave_test:
-jmp game_loop
+	jmp game_loop
 
 	;判断刚才的输赢情况（ps：输为碰撞蛇身，赢为蛇长度大等于地图大小）
 	;输或赢则显示输赢情况和分数（最终长度）
@@ -378,9 +383,15 @@ jmp game_loop
 
 ;---------------------结束返回---------------------;
 	return:
+	mov ah,00h;设置图形模式
+	mov al,old_screen_mode;恢复启动时的图形模式
+	int 10h;调用图形中断
+
+	;调用程序结束中断
 	mov ax, 4c00h
 	int 21h
-	ret
+
+	ret;理论上不会执行到此
 main endp
 
 ;---------------------函数定义---------------------;
