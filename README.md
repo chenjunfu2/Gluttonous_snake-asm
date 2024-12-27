@@ -6,3 +6,4 @@ q退出，p暂停/重开，space加速，小键盘方向键上下左右控制方
 
 # 此代码可在ms-dos 6.22系统下运行
 系统虚拟机可在分支MASM下找到
+https://github.com/chenjunfu2/Gluttonous_snake-asm/tree/MASM
