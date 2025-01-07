@@ -14,5 +14,5 @@ https://github.com/chenjunfu2/Gluttonous_snake-asm/tree/MASM
 使用中断绘图（较慢）的
 https://github.com/chenjunfu2/Gluttonous_snake-asm/tree/SuperVGA_slow_int_draw
 
-使用内存页面绘图（较快）的
+使用内存页面绘图（较快）的 -> b站文章（https://www.bilibili.com/opus/1015076728300634115）介绍的是这个版本的代码
 https://github.com/chenjunfu2/Gluttonous_snake-asm/tree/SuperVGA_fast_draw
