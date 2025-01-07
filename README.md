@@ -16,4 +16,4 @@ q退出，p暂停/重开，space加速，小键盘方向键上下左右控制方
 
 使用内存页面绘图（较快）的
 <https://github.com/chenjunfu2/Gluttonous_snake-asm/tree/SuperVGA_fast_draw>
-b站文章<https://www.bilibili.com/opus/1015076728300634115>介绍的是这个版本的代码
+，b站文章<https://www.bilibili.com/opus/1015076728300634115>介绍的是这个版本的代码
