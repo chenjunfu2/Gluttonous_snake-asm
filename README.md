@@ -10,5 +10,4 @@ SC_MSDOS622sc.exe为ms-dos 6.22中文版官方安装包，未创建虚拟软盘�
 ms-dos_setup_images.zip是用于安装ms-dos 6.22的虚拟软盘，从SC_MSDOS622sc.exe导出文件，通过ultraISO创建。
 
 # 回到默认分支
-
-https://github.com/chenjunfu2/Gluttonous_snake-asm/tree/small_screen_fast_draw
+<https://github.com/chenjunfu2/Gluttonous_snake-asm/tree/small_screen_fast_draw>
