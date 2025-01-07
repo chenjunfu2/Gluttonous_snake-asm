@@ -17,6 +17,5 @@ ms-dos 6.22系统虚拟机可在此分支下找到：
 使用内存页面绘图（较快）的
 <https://github.com/chenjunfu2/Gluttonous_snake-asm/tree/SuperVGA_fast_draw>
 
-b站文章《8086汇编贪吃蛇开发记录（内存绘图，非字符画）》<https://www.bilibili.com/opus/1015076728300634115>
-
-介绍的是这个版本的代码<https://github.com/chenjunfu2/Gluttonous_snake-asm/tree/SuperVGA_fast_draw>
+# b站文章《8086汇编贪吃蛇开发记录（内存绘图，非字符画）》<https://www.bilibili.com/opus/1015076728300634115>讲的是这个版本的代码
+<https://github.com/chenjunfu2/Gluttonous_snake-asm/tree/SuperVGA_fast_draw>
