@@ -8,8 +8,8 @@ q退出，p暂停/重开，space加速，小键盘方向键上下左右控制方
 ms-dos 6.22系统虚拟机可在此分支下找到：
 <https://github.com/chenjunfu2/Gluttonous_snake-asm/tree/MASM>
 
-# 其它使用SuperVGA模式的只能在dosbox下运行
-可在其它两个分支找到，分别是：
+# 其它使用SuperVGA模式的只建议在dosbox下运行，ms-dos 6.22下运行效果较差或根本不能正确执行
+SuperVGA模式版本可在其它两个分支找到，分别是：
 
 使用中断绘图（较慢）的
 <https://github.com/chenjunfu2/Gluttonous_snake-asm/tree/SuperVGA_slow_int_draw>
